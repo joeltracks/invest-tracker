@@ -13,6 +13,31 @@ const currencyOptions = ['USD', 'EUR', 'GBP', 'KES', 'CAD', 'AUD', 'INR', 'ZAR',
 
 function App() {
   const { session } = useAccount()
+  const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false)
+  const [activeSection, setActiveSection] = useState('dashboard')
+  const navigationToggle = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    const close = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && mobileNavigationOpen) {
+        setMobileNavigationOpen(false)
+        navigationToggle.current?.focus()
+      }
+    }
+    document.addEventListener('keydown', close)
+    return () => document.removeEventListener('keydown', close)
+  }, [mobileNavigationOpen])
+  function navigateTo(section: string) {
+    setActiveSection(section)
+    setMobileNavigationOpen(false)
+    const destination = document.getElementById(section)
+    if (destination instanceof HTMLDetailsElement) destination.open = true
+    if (section === 'formula-details') destination?.querySelector('details')?.setAttribute('open', '')
+    requestAnimationFrame(() => {
+      destination?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start' })
+      if (destination) { destination.tabIndex = -1; destination.focus({ preventScroll: true }) }
+      history.replaceState(null, '', `#${section}`)
+    })
+  }
   const projectionRef = useRef<HTMLElement>(null)
   const [items, setItems] = useState<Investment[]>([])
   const [busy, setBusy] = useState(true)
@@ -115,12 +140,24 @@ function App() {
     const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); link.download = 'yieldwise-investments.csv'; link.click(); URL.revokeObjectURL(link.href)
   }
 
-  return <div className="app-shell"><a className="skip-link" href="#dashboard">Skip to portfolio</a>
-    <header className="topbar">
-      <a href="#home" className="brand" aria-label="Yieldwise home"><span className="brand-mark"><Activity size={19} strokeWidth={2.5} /></span><span>yieldwise</span></a>
-      <nav className="top-nav" aria-label="Main navigation"><a className="active" href="#dashboard">Overview</a><a href="#investments">Investments</a><a href="#formula-details" onClick={e=>{e.preventDefault();const details=document.querySelector<HTMLDetailsElement>('#formula-details details');if(details)details.open=true;document.getElementById('formula-details')?.scrollIntoView({behavior:'smooth'})}}>How estimates work</a></nav>
-      <div className="top-actions"><span className="mode-pill"><span className="status-dot" />{session?"Personal portfolio":"Demo portfolio"}</span><button type="button" className="button button-quiet" onClick={()=>{const account=document.getElementById("account-settings") as HTMLDetailsElement|null;if(account){account.open=true;account.scrollIntoView({behavior:"smooth"});account.querySelector<HTMLElement>("input,button")?.focus()}}}>Account</button></div>
+  return <div className={`app-shell sidebar-layout ${mobileNavigationOpen ? 'sidebar-open' : ''}`}><a className="skip-link" href="#dashboard">Skip to portfolio</a>
+    <header className="mobile-header">
+      <a href="#dashboard" className="brand" onClick={e=>{e.preventDefault();navigateTo('dashboard')}} aria-label="Yieldwise home"><span className="brand-mark"><Activity size={19} strokeWidth={2.5}/></span>yieldwise</a>
+      <button ref={navigationToggle} type="button" className="button button-quiet navigation-toggle" aria-expanded={mobileNavigationOpen} aria-controls="primary-sidebar" onClick={()=>setMobileNavigationOpen(open=>!open)}>{mobileNavigationOpen?<X size={18}/>:<WalletCards size={18}/>} {mobileNavigationOpen?'Close menu':'Menu'}</button>
     </header>
+    <aside id="primary-sidebar" className="sidebar" aria-label="Primary sidebar">
+      <a href="#dashboard" className="brand sidebar-brand" onClick={e=>{e.preventDefault();navigateTo('dashboard')}} aria-label="Yieldwise home"><span className="brand-mark"><Activity size={19} strokeWidth={2.5}/></span><span>yieldwise</span></a>
+      <div className="sidebar-group-label">Portfolio</div>
+      <nav className="sidebar-nav" aria-label="Main navigation">
+        <a href="#dashboard" className={activeSection==='dashboard'?'active':''} aria-current={activeSection==='dashboard'?'location':undefined} onClick={e=>{e.preventDefault();navigateTo('dashboard')}}><ChartNoAxesCombined size={18}/>Overview</a>
+        <a href="#investments" className={activeSection==='investments'?'active':''} aria-current={activeSection==='investments'?'location':undefined} onClick={e=>{e.preventDefault();navigateTo('investments')}}><WalletCards size={18}/>Investments</a>
+        <a href="#formula-details" className={activeSection==='formula-details'?'active':''} aria-current={activeSection==='formula-details'?'location':undefined} onClick={e=>{e.preventDefault();navigateTo('formula-details')}}><CircleHelp size={18}/><span>How estimates work</span></a>
+      </nav>
+      <div className="sidebar-bottom">
+        <button type="button" className={`sidebar-account ${activeSection==='account-settings'?'active':''}`} onClick={()=>navigateTo('account-settings')}><LockKeyhole size={18}/>Account & security<ArrowRight size={15}/></button>
+        <div className="sidebar-status"><span className="status-dot"/>{session?'Personal portfolio':'Demo portfolio'}<small>Stored in this browser</small></div>
+      </div>
+    </aside>
 
     <main id="dashboard" className="main-content">
       <div className="page-heading"><div><h1>Your portfolio, in motion<span className="heading-period">.</span></h1><p className="subheading">See how dates, cash flows and stated terms shape what your investments may earn.</p></div>

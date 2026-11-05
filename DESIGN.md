@@ -54,3 +54,9 @@ A market field instrument: a clear, active interface for reading time, cash flow
 - Product patterns reviewed via search: [Wealthfolio](https://wealthfolio.app/), [Fidelity fixed-income analysis](https://www.fidelity.com/fixed-income-bonds/fixed-income-tools-services/fixed-income-analysis-tool), and [Empower tools](https://www.empower.com/tools).
 - Their pages could not be visually inspected because the available headless browser lacked Chromium. These references informed hierarchy and product patterns only; no screenshot-based claims are made.
 - Design preview: `yieldwise-preview.html` in the saved design exploration. The image-generation preview path was unavailable because no generation key is configured.
+
+
+## Navigation
+- Use a persistent left sidebar on desktop for Overview, Investments and How estimates work. Keep Account & security and portfolio storage status at the bottom.
+- On screens at or below 760px, use a compact brand header with a Menu disclosure. Expanded navigation stays in normal document flow. Selecting a destination closes the menu and focuses the destination; Escape closes the menu and returns focus to its toggle.
+- Active navigation uses the cobalt surface treatment with a visible location indicator. Honor reduced motion when scrolling between sections.
