@@ -4,14 +4,34 @@ let storageKey='yieldwise-demo-investments-v1'
 export function setStorageScope(userId: string | null) { storageKey = userId ? `yieldwise-investments-${userId}` : 'yieldwise-demo-investments-v1' }
 export function clearPortfolio() { localStorage.removeItem(storageKey) }
 export function replaceInvestments(items: Investment[]) { persist(items); return items }
-const now=new Date(), dateFrom=(months:number)=>{const d=new Date(now);d.setMonth(d.getMonth()-months);return dateKey(d)}
 const defaults={events:[],yieldBasis:'gross' as const,taxRate:0,status:'active' as const,statementValue:null,couponMonths:[]}
-const demoSeed:Investment[]=[
- { ...defaults,id:'demo-mmf',provider:'Cedar Capital',name:'Cedar Money Market Fund',type:'MMF',principal:150000,currency:'KES',annualRate:5.2,startDate:dateFrom(5),maturityDate:null,frequency:'unknown',interestMode:'unknown',createdAt:now.toISOString(),events:[],yieldBasis:'gross',taxRate:0,status:'active',statementValue:null,couponMonths:[] },
- { ...defaults,id:'demo-bond',provider:'Northstar Treasury',name:'2028 Treasury Note',type:'Bond',principal:100000,currency:'KES',annualRate:6,startDate:dateFrom(8),maturityDate:dateKey(new Date(new Date().setFullYear(now.getFullYear()+2))),frequency:'semiannual',interestMode:'paid_out',createdAt:now.toISOString(),events:[],yieldBasis:'gross',taxRate:0,status:'active',statementValue:null,couponMonths:[6,12] }
-]
 function normalize(raw: Investment[]): Investment[] { return raw.map(x=>({...defaults,...x,events:x.events??[],yieldBasis:x.yieldBasis??'gross',taxRate:x.taxRate??0,status:x.status??'active',statementValue:x.statementValue??null,couponMonths:x.couponMonths??[]})) }
-export function loadInvestments():Investment[]{const raw=localStorage.getItem(storageKey);return raw?normalize(JSON.parse(raw) as Investment[]):storageKey==='yieldwise-demo-investments-v1'?demoSeed:[]}
+// Remove only untouched built-in records saved by earlier versions in the local/demo scope.
+// Custom entries, reconciled records and samples with recorded events are preserved.
+function isLegacySample(item:Investment):boolean {
+  if(item.events.length||item.statementValue!==null||item.status!=='active'||item.yieldBasis!=='gross'||item.taxRate!==0)return false
+  const created=new Date(item.createdAt)
+  if(!Number.isFinite(created.getTime()))return false
+  const originalDate=(value:string|null,monthsAgo:number,yearsAhead=0)=>{
+    const date=new Date(created);date.setMonth(date.getMonth()-monthsAgo);date.setFullYear(date.getFullYear()+yearsAhead)
+    return value===dateKey(date)||value===date.toISOString().slice(0,10)
+  }
+  const mmf=item.id==='demo-mmf'&&item.provider==='Cedar Capital'&&item.name==='Cedar Money Market Fund'&&item.annualRate===5.2
+    &&item.type==='MMF'&&item.frequency==='unknown'&&item.interestMode==='unknown'&&item.maturityDate===null&&item.couponMonths.length===0&&originalDate(item.startDate,5)
+  const bond=item.id==='demo-bond'&&item.provider==='Northstar Treasury'&&item.name==='2028 Treasury Note'&&item.annualRate===6
+    &&item.type==='Bond'&&item.frequency==='semiannual'&&item.interestMode==='paid_out'&&item.couponMonths.join(',')==='6,12'&&originalDate(item.startDate,8)&&originalDate(item.maturityDate,0,2)
+  return (mmf&&((item.currency==='USD'&&item.principal===15000)||(item.currency==='KES'&&item.principal===150000)))
+    ||(bond&&((item.currency==='USD'&&item.principal===10000)||(item.currency==='KES'&&item.principal===100000)))
+}
+export function loadInvestments():Investment[]{
+  const raw=localStorage.getItem(storageKey)
+  if(!raw)return []
+  const items=normalize(JSON.parse(raw) as Investment[])
+  if(storageKey!=='yieldwise-demo-investments-v1')return items
+  const next=items.filter(item=>!isLegacySample(item))
+  if(next.length!==items.length)persist(next)
+  return next
+}
 function persist(items:Investment[]){localStorage.setItem(storageKey,JSON.stringify(items))}
 export function saveInvestment(input:InvestmentInput,existingId?:string):Investment[]{const current=loadInvestments(),old=current.find(x=>x.id===existingId);if(old&&input.maturityDate&&old.events.some(e=>e.date>input.maturityDate!))throw Error('Maturity cannot precede a recorded event.');const item:Investment={...input,currency:old?.currency??input.currency,startDate:old?.startDate??input.startDate,principal:old?.principal??input.principal,annualRate:old?.annualRate??input.annualRate,events:old?.events??[],status:old?.status??'active',id:existingId??crypto.randomUUID(),createdAt:old?.createdAt??new Date().toISOString()};const next=existingId?current.map(x=>x.id===existingId?item:x):[item,...current];persist(next);return next}
 export function deleteInvestment(id:string):Investment[]{const next=loadInvestments().filter(x=>x.id!==id);persist(next);return next}

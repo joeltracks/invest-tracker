@@ -1,6 +1,6 @@
 # Yieldwise dashboard prototype
 
-Responsive React + TypeScript frontend for tracking income investments. This phase uses fictional sample records and browser local storage; no real accounts or backend are connected.
+Responsive React + TypeScript frontend for tracking income investments. New portfolios start empty. Investment records are stored in the browser; optional Supabase authentication can be configured as described below.
 
 ## Run locally
 
@@ -75,3 +75,5 @@ The visible conversion panel prompts for rates on existing foreign holdings and 
 Local PDF extraction recognizes ISO currency codes, KSh/KShs, currency labels and supported symbols near investment amounts. Each detected investment has its own currency review. Ambiguous dollar signs, conflicting labels or missing currency leave the currency unselected, requiring explicit confirmation. Foreign candidates show a conversion-rate field and KES principal preview before save. Reused saved quotes remain editable and are clearly user-set. Scanned PDFs still require manual entry; no external AI/OCR service is used. Extraction reads at most the first 12 pages and can miss unfamiliar layouts. Always check the statement.
 
 Older settings or backup settings that report in another currency are not reinterpreted as KES. Existing holdings keep their currency; fresh KES rates and a KES goal must be entered. Legacy JSON investments can be imported, while their non-KES reporting settings are excluded.
+
+No investment samples are automatically loaded. Earlier built-in samples saved in the local/demo browser scope are removed on load only when their reserved IDs, names, providers, original currency/amount and yield still match, with no recorded events or statement reconciliation. Custom records and edited or reconciled samples are preserved. Signed-in account storage is not altered by this cleanup. Clearing an empty portfolio never re-seeds sample investments.
