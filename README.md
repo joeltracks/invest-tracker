@@ -77,3 +77,9 @@ Local PDF extraction recognizes ISO currency codes, KSh/KShs, currency labels an
 Older settings or backup settings that report in another currency are not reinterpreted as KES. Existing holdings keep their currency; fresh KES rates and a KES goal must be entered. Legacy JSON investments can be imported, while their non-KES reporting settings are excluded.
 
 No investment samples are automatically loaded. Earlier built-in samples saved in the local/demo browser scope are removed on load only when their reserved IDs, names, providers, original currency/amount and yield still match, with no recorded events or statement reconciliation. Custom records and edited or reconciled samples are preserved. Signed-in account storage is not altered by this cleanup. Clearing an empty portfolio never re-seeds sample investments.
+
+## Opening and current principal
+
+Opening principal is retained as the historical starting amount. Current principal is opening principal plus effective dated top-ups, less effective dated withdrawals. A future event applies on its selected date; recording it does not change today's principal early. Valid withdrawals cannot exceed available capital or invalidate a later withdrawal. Income is recalculated between those dates using the principal then in effect.
+
+The dashboard, investment row and edit view use current principal. Foreign-currency edit previews convert that current principal to KES. The ledger previews principal after the proposed event before it is recorded. CSV exports include separate opening/current principal columns and the snapshot date, so exported capital agrees with the dashboard without overwriting the opening balance or counting events twice. JSON backups retain opening amounts and the complete event ledger for re-import.
