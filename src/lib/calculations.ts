@@ -52,5 +52,14 @@ export function addMonths(date: Date, months: number): Date { const d=new Date(d
 export function formatMoney(amount: number, currency: string): string { try{return new Intl.NumberFormat(undefined,{style:'currency',currency,maximumFractionDigits:2}).format(amount)}catch{return `${currency} ${amount.toLocaleString(undefined,{maximumFractionDigits:2})}`} }
 export function estimateLabel(inv: Investment): string { if(inv.interestMode==='unknown'||inv.frequency==='unknown')return 'Range · simple to daily-compounded'; if(inv.type==='MMF')return 'Scenario · current yield held constant'; return inv.interestMode==='paid_out'?'Simple accrual · paid out':'Compounding scenario' }
 export function investmentState(inv: Investment, now=new Date()): 'Scheduled'|'Active'|'Matured'|'Closed' { if(inv.status==='closed')return 'Closed'; if(dateOf(inv.startDate)>now)return 'Scheduled'; if(inv.maturityDate && new Date(`${inv.maturityDate}T23:59:59`)<now)return 'Matured'; return 'Active' }
-export function nextPayout(inv: Investment, from=new Date()): Date|null { if(inv.frequency==='unknown'||inv.frequency==='at_maturity') return inv.maturityDate?dateOf(inv.maturityDate):null; const months=12/frequencyPeriods[inv.frequency]!; let d=dateOf(inv.startDate); while(d<=from)d=addMonths(d,months); return d }
-
+export function currentYield(inv: Investment, at=new Date()): number { return [...(inv.events??[])].filter(e=>e.kind==='rate_change'&&dateOf(e.date)<=at).sort((a,b)=>a.date.localeCompare(b.date)).at(-1)?.annualRate??inv.annualRate }
+export function nextPayout(inv: Investment, from=new Date()): Date|null {
+  if(inv.status==='closed'||(inv.maturityDate&&dateOf(inv.maturityDate)<=from))return null
+  if(inv.frequency==='unknown')return null
+  if(inv.frequency==='at_maturity')return inv.maturityDate?dateOf(inv.maturityDate):null
+  let d=dateOf(inv.startDate)
+  if(inv.frequency==='daily'){d=new Date(Math.max(d.getTime(),new Date(from.getFullYear(),from.getMonth(),from.getDate()).getTime()));if(d<=from)d.setDate(d.getDate()+1)}
+  else {const step=12/frequencyPeriods[inv.frequency]!;for(let i=1;d<=from&&i<100000;i++)d=addMonths(dateOf(inv.startDate),step*i)}
+  if(inv.maturityDate&&d>dateOf(inv.maturityDate))return null
+  return d
+}

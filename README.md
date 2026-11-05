@@ -40,3 +40,26 @@ Sign-in, password reset and magic-link flows are intentionally not wired yet. Th
 
 For screen readers, mobile cards expose table roles and descriptive labels. This environment has no VoiceOver or TalkBack device, so manual VoiceOver and TalkBack validation remains necessary before release.
 
+
+## Accounts, goals, exchange rates and backups
+
+Run npm install, npm run dev, npm test, npm run typecheck and npm run build (output: dist). Copy .env.example to .env.local for local authentication. Without configuration the site remains usable in demo mode and clearly disables email/account services.
+
+Supabase free-tier setup:
+1. Create a Supabase project and enable Email auth. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY locally and in Vercel. Use the public project URL and anon/publishable key only. Never put a service-role key in a VITE_ variable.
+2. In Authentication / URL Configuration, set Site URL and allowed redirect URLs to your deployed app and http://localhost:5173. Confirmation, magic links and password recovery return to the current app path. Magic-link sign-in expects an existing confirmed account. Configure an email provider for production delivery; the default service has limits.
+3. Enable TOTP MFA. Enrollment requires scanning the QR code or adding the setup key and verifying a code. Later sign-ins require MFA before the portfolio opens. Supabase provides no recovery codes; consider enrolling a second authenticator.
+4. Install the Supabase CLI and link the project: supabase login; supabase link --project-ref YOUR_PROJECT_REF. Set the Edge Function secret ALLOWED_ORIGIN to your deployed origin without a trailing slash, then deploy with supabase functions deploy delete-account. Supabase manages the hosted server URL and service-role key. The function validates bearer tokens with auth.getUser, checks recent authentication (five minutes), requires aal2 when MFA is enrolled, and deletes only that caller. The supplied config disables the legacy JWT gateway check because token verification happens explicitly inside the function.
+5. Vercel: Vite framework, build npm run build, output dist. Add the two public environment variables and redeploy. Deploy the Edge Function separately and set its allowed origin to the app's deployed origin.
+
+Data boundaries: authentication is live when configured. Holdings, event history, goals and FX remain browser-local, partitioned by user ID; there is no portfolio cloud synchronization in this release. Demo storage is separate. Browser storage is unencrypted; a shared browser profile is not a secure vault. JSON export contains only portfolio records and preferences, never sessions. Import validates the entire versioned file, shows a review and skips matching IDs or investment fingerprints. Financial backups should be stored privately.
+
+Account deletion removes the Supabase login and database rows linked to auth.users with ON DELETE CASCADE, then clears this account's records in this browser. This app adds no portfolio tables or Storage objects. Downloaded backups and other devices' local copies remain under the user's control. If adding cloud persistence, add user-owned RLS and cascading ownership; if adding Storage, extend the server cleanup before deleting Auth users. Never connect deletion to a project with unrelated resources without reviewing that cleanup.
+
+Manual rates mean: 1 source-currency unit = X reporting-currency units. Rates are user-set, not live quotes. Changing reporting currency clears conversions when saved. Any missing rate blocks combined totals and goal progress rather than silently assuming parity. Original currency views keep native amounts.
+
+The monthly income estimate is next-12-month interest after entered tax assumptions, converted at user-set rates, divided by 12. It includes paid, accrued and reinvested income; actual payout timing varies. Unknown terms show simple-to-daily-compounded bounds; goal progress uses the lower estimate, capped at 100%. Scheduled and closed holdings are excluded; maturity caps accrual.
+
+Templates are editable assumptions: Treasury bond = semiannual paid coupons; fixed deposit = payout at maturity; MMF = daily simple accrual, paid out. Confirm terms on your statement before selecting reinvestment. Initial principal, rate, start date and currency stay fixed after creation. Dated deposits, withdrawals and yield changes preserve history; current yield uses the latest effective rate event. Validation prevents withdrawals from overdrawing any later balance.
+
+Motion: one 600ms chart reveal on first intersection. Content is visible without animation; reduced-motion uses the still state. Mobile preserves a native table in a keyboard-focusable horizontal region. Manual VoiceOver/TalkBack and configured email/MFA/deletion verification are still required. Projections are estimates, not advice or guaranteed returns.
