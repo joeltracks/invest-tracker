@@ -12,3 +12,6 @@
 .metric-value.metric-range{font-size:17px;line-height:1.35;letter-spacing:-.3px;overflow-wrap:anywhere}.ledger-actions{display:flex;gap:12px}.ledger-actions .text-button{padding-left:0}.investment-mobile-card[role=row]{display:block}
 .ledger-table-wrap{max-height:170px;overflow:auto}.ledger-history table{width:100%;border-collapse:collapse;text-align:left;font-size:9px}.ledger-history th{color:#7d8c82;font-weight:700;text-align:left;padding:5px;border-bottom:1px solid #e8eeea}.ledger-history td{color:#617469;padding:6px 5px;border-bottom:1px solid #edf1ef}.ledger-history tr:last-child td{border-bottom:0}
 
+
+/* Keep all dashboard navigation available on narrow screens. */
+@media(max-width:680px){.topbar{height:auto;min-height:64px;flex-wrap:wrap;padding:10px 16px;gap:6px 14px}.top-nav{display:flex;order:3;flex:0 0 100%;width:100%;height:36px;gap:22px;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin}.top-nav a{flex:0 0 auto;height:34px;white-space:nowrap;font-size:11px}}
