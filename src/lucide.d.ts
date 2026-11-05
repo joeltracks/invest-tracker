@@ -4,6 +4,7 @@ declare module 'lucide-react' {
   export const Activity: Icon
   export const ArrowDownToLine: Icon
   export const ArrowRight: Icon
+  export const ArrowDownUp: Icon
   export const BadgeCheck: Icon
   export const CalendarDays: Icon
   export const ChartNoAxesCombined: Icon
@@ -24,3 +25,4 @@ declare module 'lucide-react' {
   export const WalletCards: Icon
   export const X: Icon
 }
+

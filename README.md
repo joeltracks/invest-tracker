@@ -1,6 +1,6 @@
-# Yieldwise dashboard frontend
+# Yieldwise dashboard prototype
 
-A responsive React + TypeScript frontend prototype for an income-investment tracker. This phase is intentionally frontend-only: it uses fictional sample records and browser local storage. No accounts, backend, provider connections, or real credentials are configured.
+Responsive React + TypeScript frontend for tracking income investments. This phase uses fictional sample records and browser local storage; no real accounts or backend are connected.
 
 ## Run locally
 
@@ -9,37 +9,34 @@ Requires Node.js 20 or later.
 ```sh
 npm install
 npm run dev
-```
-
-To check TypeScript and create a production build:
-
-```sh
 npm run typecheck
 npm run build
-npm run preview
 ```
 
-## Included in this phase
+## Included
 
-- Dashboard cards for total principal, estimated current value, and projected earnings.
-- A time-based chart with 3, 6, 12 and 24-month controls.
-- Investment list with edit and delete actions.
-- Add/edit form for MMFs, bonds and other income investments, with provider, principal, currency, rate, dates, maturity, frequency and interest treatment.
-- Browser-local PDF text extraction for selectable-text PDFs, with an editable review step before save. Scanned PDFs show a manual-entry fallback; no external OCR or AI service is used.
-- CSV export, responsive mobile cards, validation, empty and error states, and keyboard-friendly accessible controls.
-- Fictional sample investments persisted in this browser. Clear the `yieldwise-demo-investments-v1` local-storage key to restore the sample data.
+- Dashboard totals and 3, 6, 12 and 24 month projections.
+- Event ledger for dated deposits, withdrawals and interest rate changes. Open an investment’s edit view or use its ledger action to record events.
+- Gross/net yield choice with an optional tax estimate for gross yields; simple to daily-compounded ranges when terms are unknown.
+- Scheduled, active, matured and closed states; scheduled and closed records are excluded from totals. Matured investments prompt a renew/update or close decision.
+- Live estimates in the add form, templates for Treasury bonds, fixed deposits and MMFs, payout/maturity dates, monthly payout overview, chart tooltips/breakdown, sort/filter, and weighted average yield.
+- Statement reconciliation field with the difference from the app estimate.
+- Local PDF text extraction with candidate review for multiple detected investments and duplicate warnings. No external AI/OCR is called. Scanned PDFs need manual entry.
+- Undo after deletion, CSV export, responsive holdings cards with table roles and labels, validation, keyboard controls, and an empty state.
 
-## Calculation assumptions
+## Projection assumptions
 
-The app uses calendar days under ACT/365 and stops at a maturity date if supplied.
+All calculations use ACT/365 calendar days and accrue separately between ledger events. For each segment, simple interest is `principal × (annual rate / 100) × days / 365`. Compounding uses `balance × ((1 + annual rate / 100 / m)^(m × days / 365) − 1)`, where `m` is the selected compounding frequency. A deposit or withdrawal changes principal on its event date; a rate change applies after accrual through that date. Withdrawals are capped at the remaining principal in the estimate.
 
-- Simple accrual: `principal × (annual_rate / 100) × days / 365`.
-- Compound estimate: `principal × (1 + annual_rate / 100 / m)^(m × days / 365)`, where `m` is the selected compounding periods per year.
-- Compounding is applied only when the user selects reinvestment and a known frequency. Paid-out or unknown terms use simple accrual.
-- An MMF projection holds its entered yield constant as a scenario. Bond estimates use face value as principal and do not model bond market price, yield-to-maturity, provider-specific coupon conventions, taxes or fees.
+Unknown terms are shown between a simple-accrual scenario and a daily-compounded scenario. That is a scenario range, not a confidence interval. Gross yield tax is estimated as total accrued interest multiplied by `(1 − tax rate / 100)` for display; the prototype does not model tax withholding timing or reinvestment of after-tax amounts. Net yields are used as entered. Payout dates are approximated from the start date and frequency. Bond face value is used; market price, yield-to-maturity, coupon conventions and provider rounding are not modeled. MMF rates are held constant only as a scenario.
 
-All projections are estimates, may differ from provider calculations, are not guaranteed returns and are not financial advice.
+Projections are estimates, not guaranteed returns or financial advice.
 
-## Later backend phase
+## Privacy, authentication and next phase
 
-The current frontend stores edits in local storage only; it is not appropriate for multiple users or shared devices. A later backend phase should add authentication, per-user database access controls, server-side backups and deletion/export controls before real user information is collected. The investment and calculation types are separated from the local storage module to make that connection straightforward.
+Statement files are processed in the browser and are not uploaded. Only selectable text is parsed, and every extracted field must be reviewed before saving. Multi-investment detection relies on repeated principal labels and can miss or mis-group statement layouts; always verify against the source. The prototype stores personal entries in local storage on the current browser profile. Do not use it for sensitive real financial records on a shared device.
+
+Sign-in, password reset and magic-link flows are intentionally not wired yet. They require the Supabase backend phase so authentication is real and records can be isolated per user; a local-only login would give a false sense of security. The empty `supabase` folder is not a configured project. Before real use, add Supabase Auth, per-user row-level security, backups, deletion/export handling, and a privacy review.
+
+For screen readers, mobile cards expose table roles and descriptive labels. This environment has no VoiceOver or TalkBack device, so manual VoiceOver and TalkBack validation remains necessary before release.
+
