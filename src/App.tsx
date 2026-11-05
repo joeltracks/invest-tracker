@@ -23,6 +23,7 @@ function App() {
   const [eventKind, setEventKind] = useState<'deposit'|'withdrawal'|'rate_change'|undefined>()
   const [sortBy, setSortBy] = useState<'name'|'principal'|'rate'|'earned'|'maturity'>('name')
   const [filterBy, setFilterBy] = useState<'all'|'active'|'scheduled'|'matured'|'closed'>('all')
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null)
 
   const refresh = useCallback(() => {
     try { setItems(loadInvestments()); setError('') }
@@ -58,6 +59,29 @@ function App() {
     return (a.maturityDate??'9999').localeCompare(b.maturityDate??'9999')
   })
   const weightedRate = eligible.reduce((sum,x)=>sum+estimate(x,now).principal*x.annualRate,0)/(principal||1)
+  const timelineEvents = useMemo(() => {
+    const end = addMonths(now, months)
+    const rows: { id: string; date: string; kind: 'start'|'deposit'|'withdrawal'|'rate_change'|'payout'|'maturity'; title: string; investment: string; amount?: string }[] = []
+    visible.filter(x => investmentState(x, now) !== 'Closed').forEach(item => {
+      const state = investmentState(item, now)
+      rows.push({ id: `${item.id}:start`, date: item.startDate, kind: 'start', title: state === 'Scheduled' ? 'Starts' : 'Investment started', investment: item.name })
+      item.events.forEach(event => rows.push({
+        id: `${item.id}:${event.id}`,
+        date: event.date,
+        kind: event.kind,
+        title: event.kind === 'deposit' ? 'Top-up' : event.kind === 'withdrawal' ? 'Withdrawal' : 'Rate change',
+        investment: item.name,
+        amount: event.kind === 'rate_change' ? `${event.annualRate}%` : formatMoney(event.amount ?? 0, item.currency),
+      }))
+      const payout = item.frequency === 'unknown' || item.frequency === 'at_maturity' ? null : nextPayout(item, now)
+      if (payout && payout <= end) rows.push({ id: `${item.id}:payout:${payout.toISOString()}`, date: payout.toISOString().slice(0, 10), kind: 'payout', title: 'Next payout', investment: item.name })
+      if (item.maturityDate && new Date(`${item.maturityDate}T12:00:00`) >= now && new Date(`${item.maturityDate}T12:00:00`) <= end) rows.push({ id: `${item.id}:maturity`, date: item.maturityDate, kind: 'maturity', title: 'Maturity', investment: item.name })
+    })
+    rows.sort((a, b) => a.date.localeCompare(b.date))
+    const today = now.toISOString().slice(0, 10)
+    return [...rows.filter(x => x.date < today).slice(-3), ...rows.filter(x => x.date >= today).slice(0, 5)]
+  }, [visible, months, now])
+  const selectedEvent = timelineEvents.find(event => event.id === selectedEventId)
   const hasData = items.length > 0
 
   async function save(input: InvestmentInput, id?: string, keepOpen=false) {
@@ -94,7 +118,7 @@ function App() {
     </header>
 
     <main id="dashboard" className="main-content">
-      <div className="page-heading"><div><div className="eyebrow"><span className="eyebrow-line" /> YOUR INCOME PORTFOLIO</div><h1>Good morning<span className="heading-period">.</span></h1><p className="subheading">A calm, clear view of what your investments may earn.</p></div>
+      <div className="page-heading"><div><div className="eyebrow"><span className="eyebrow-line" /> YOUR INCOME PORTFOLIO</div><h1>Your portfolio, in motion<span className="heading-period">.</span></h1><p className="subheading">See how dates, cash flows and stated terms shape what your investments may earn.</p></div>
         <div className="heading-actions">{hasData && <button className="button button-quiet" onClick={exportCsv}><ArrowDownToLine size={16} /> Export</button>}<button className="button button-primary" onClick={openAdd}><Plus size={17} /> Add investment</button></div>
       </div>
       {error && <div className="alert error-alert" role="alert"><CircleHelp size={18} />{error}<button aria-label="Dismiss error" onClick={() => setError('')}><X size={16} /></button></div>}
@@ -114,6 +138,11 @@ function App() {
           </div>
             <div className="chart-summary"><strong>{formatMoney(currentValue, currency)}</strong><span>today</span><ArrowRight size={15} /><strong className="green-text">{formatMoney(currentValue + futureEarned, currency)}</strong><span>in {months} months</span><div className="period-control" role="group" aria-label="Projection period">{[[3, '3M'], [6, '6M'], [12, '1Y'], [24, '2Y']].map(([m, label]) => <button key={m} className={months === m ? 'selected' : ''} onClick={() => setMonths(Number(m))} aria-pressed={months === m}>{label}</button>)}</div></div>
           <ProjectionChart points={chartPoints} currency={currency} breakdown={eligible} />
+          <div className="event-rail" aria-label="Investment event timeline">
+            <div className="event-rail-heading"><strong>Events shaping this view</strong><span>{months}-month window</span></div>
+            {timelineEvents.length ? <div className="event-track">{timelineEvents.map(event => <button key={event.id} type="button" className={`event-node event-${event.kind} ${selectedEventId === event.id ? 'event-selected' : ''}`} aria-pressed={selectedEventId === event.id} onClick={() => setSelectedEventId(selectedEventId === event.id ? null : event.id)}><i aria-hidden="true" /><span><strong>{event.title}</strong><small>{new Date(`${event.date}T12:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</small><small className="event-investment">{event.investment}{event.amount ? ` · ${event.amount}` : ''}</small></span></button>)}</div> : <p className="event-empty">No dated events in this projection window yet. Add a top-up, rate change or payout term to build the timeline.</p>}
+            {selectedEvent && <div className="event-inspector" aria-live="polite"><span className={`event-inspector-mark event-${selectedEvent.kind}`} aria-hidden="true" /><div><strong>{selectedEvent.title} · {selectedEvent.investment}</strong><span>{new Date(`${selectedEvent.date}T12:00:00`).toLocaleDateString(undefined, { dateStyle: 'long' })}{selectedEvent.amount ? ` · ${selectedEvent.amount}` : ''}. This date marks a new segment in the estimate.</span></div><button type="button" onClick={() => setSelectedEventId(null)} aria-label="Close event details"><X size={15} /></button></div>}
+          </div>
           <p className="chart-note"><Sparkles size={13} /> Estimates assume the current entered rate continues. Where terms are unknown, the chart shows the simple-accrual scenario; the dashboard and holding rows show the simple-to-daily range.</p>
         </section>
 
@@ -144,12 +173,13 @@ function Metric({ icon, label, value, detail, emphasis = false }: { icon: React.
 }
 
 function ProjectionChart({ points, currency, breakdown }: { points: { date: Date; value: number }[]; currency: string; breakdown: Investment[] }) {
+  const [activePoint, setActivePoint] = useState<number | null>(null)
   if (!points.length) return null
   const values = points.map(x => x.value), min = Math.min(...values), max = Math.max(...values), span = max - min || Math.max(max * 0.04, 1)
   const coords = points.map((point, i) => ({ x: 40 + i * 150, y: 124 - ((point.value - min) / span) * 78 }))
   const path = coords.map((p, i) => `${i ? 'L' : 'M'} ${p.x} ${p.y}`).join(' ')
   const area = `${path} L ${coords.at(-1)?.x} 142 L ${coords[0].x} 142 Z`
-  return <div className="chart-wrap"><svg className="chart-svg" viewBox="0 0 940 170" role="img" aria-label={`Estimated portfolio value trend in ${currency}`} preserveAspectRatio="none"><defs><linearGradient id="fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#65a88e" stopOpacity=".22" /><stop offset="100%" stopColor="#65a88e" stopOpacity="0" /></linearGradient></defs>{[38, 82, 126].map(y => <line key={y} x1="35" y1={y} x2="925" y2={y} className="chart-grid" />)}<path d={area} fill="url(#fill)" /><path d={path} fill="none" className="chart-line" />{coords.map((p, i) => <g key={i} className="chart-point" tabIndex={0} role="img" aria-label={`${points[i].date.toLocaleDateString()} estimated value ${formatMoney(points[i].value,currency)}`}><circle cx={p.x} cy={p.y} r={i === coords.length - 1 ? 5 : 3.1} className="chart-dot" /><title>{points[i].date.toLocaleDateString()} · {formatMoney(points[i].value,currency)}</title></g>)}</svg><div className="chart-labels">{[0, Math.ceil((points.length - 1) / 2), points.length - 1].map(i => <span key={i}>{points[i].date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>)}</div><div className="breakdown-list" aria-label="Projection breakdown">{breakdown.map(x=><span key={x.id}><i />{x.name}: {formatMoney(estimate(x,points.at(-1)!.date).value,x.currency)}</span>)}</div></div>
+  return <div className="chart-wrap"><div className="chart-tooltip" role="status" aria-live="polite">{activePoint === null ? 'Focus or hover a point to inspect its estimate' : <><strong>{points[activePoint].date.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}</strong><span>{formatMoney(points[activePoint].value, currency)}</span></>}</div><svg className="chart-svg" viewBox="0 0 940 170" role="img" aria-label={`Estimated portfolio value trend in ${currency}`} preserveAspectRatio="none"><defs><linearGradient id="fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#3159f5" stopOpacity=".2" /><stop offset="100%" stopColor="#3159f5" stopOpacity="0" /></linearGradient></defs>{[38, 82, 126].map(y => <line key={y} x1="35" y1={y} x2="925" y2={y} className="chart-grid" />)}<path d={area} fill="url(#fill)" /><path d={path} fill="none" className="chart-line" />{coords.map((p, i) => <g key={i} className="chart-point" tabIndex={0} role="img" aria-label={`${points[i].date.toLocaleDateString()} estimated value ${formatMoney(points[i].value,currency)}`} onFocus={() => setActivePoint(i)} onBlur={() => setActivePoint(null)} onMouseEnter={() => setActivePoint(i)} onMouseLeave={() => setActivePoint(null)}><circle cx={p.x} cy={p.y} r={i === coords.length - 1 ? 5 : 3.1} className="chart-dot" /><title>{points[i].date.toLocaleDateString()} · {formatMoney(points[i].value,currency)}</title></g>)}</svg><div className="chart-labels">{[0, Math.ceil((points.length - 1) / 2), points.length - 1].map(i => <span key={i}>{points[i].date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>)}</div><div className="breakdown-list" aria-label="Projection breakdown">{breakdown.map(x=><span key={x.id}><i />{x.name}: {formatMoney(estimate(x,points.at(-1)!.date).value,x.currency)}</span>)}</div></div>
 }
 
 function InvestmentRow({ item, onEdit, onDelete, onEvent, onCloseInvestment, onReconcile }: { item: Investment; onEdit: () => void; onDelete: () => void; onEvent:()=>void; onCloseInvestment:()=>void; onReconcile:(value:number)=>void }) {
