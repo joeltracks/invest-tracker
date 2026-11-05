@@ -32,6 +32,11 @@ export function loadInvestments():Investment[]{
   if(next.length!==items.length)persist(next)
   return next
 }
+/** Read the pre-profile workspace without switching the currently selected profile. */
+export function readBrowserInvestments():Investment[]{
+  const raw=localStorage.getItem('yieldwise-demo-investments-v1')
+  return raw?normalize(JSON.parse(raw) as Investment[]).filter(item=>!isLegacySample(item)):[]
+}
 function persist(items:Investment[]){localStorage.setItem(storageKey,JSON.stringify(items))}
 export function saveInvestment(input:InvestmentInput,existingId?:string):Investment[]{const current=loadInvestments(),old=current.find(x=>x.id===existingId);if(old&&input.maturityDate&&old.events.some(e=>e.date>input.maturityDate!))throw Error('Maturity cannot precede a recorded event.');const item:Investment={...input,currency:old?.currency??input.currency,startDate:old?.startDate??input.startDate,principal:old?.principal??input.principal,annualRate:old?.annualRate??input.annualRate,events:old?.events??[],status:old?.status??'active',id:existingId??crypto.randomUUID(),createdAt:old?.createdAt??new Date().toISOString()};const next=existingId?current.map(x=>x.id===existingId?item:x):[item,...current];persist(next);return next}
 export function deleteInvestment(id:string):Investment[]{const next=loadInvestments().filter(x=>x.id!==id);persist(next);return next}

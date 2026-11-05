@@ -1,40 +1,107 @@
-import { createContext, useContext, useEffect, useState, type ReactNode, type FormEvent } from 'react'
-import type { Session } from '@supabase/supabase-js'
-import { supabase } from './lib/supabase'
-import { clearPortfolio, setStorageScope } from './lib/localStore'
-import { preferenceKey, setPreferenceScope } from './lib/preferences'
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
+import { setStorageScope } from './lib/localStore'
+import { setPreferenceScope } from './lib/preferences'
+import { closeLocalProfile, createLocalProfile, currentLocalProfile, findLocalProfile, hasBrowserPortfolio, loadProfiles, openLocalProfile, removeLocalProfile, updateLocalProfile, type LocalProfile, type ProfileDetails } from './lib/profiles'
 
-const Context = createContext<{ session: Session | null; recovery: boolean }>({session:null,recovery:false})
-export const useAccount = () => useContext(Context)
-const redirect = () => window.location.origin + window.location.pathname
-const message = (error: unknown) => error instanceof Error ? error.message : String(error)
+interface ProfileContext {
+  profile:LocalProfile|null
+  openExisting:()=>void
+  startNew:()=>void
+  closeProfile:()=>void
+  update:(details:ProfileDetails)=>void
+  remove:()=>void
+}
+const Context=createContext<ProfileContext>({profile:null,openExisting:()=>{},startNew:()=>{},closeProfile:()=>{},update:()=>{},remove:()=>{}})
+export const useAccount=()=>useContext(Context)
+const message=(error:unknown)=>error instanceof Error?error.message:String(error)
 
-export function AccountProvider({children}:{children:ReactNode}) {
-  const [session,setSession]=useState<Session|null>(null),[ready,setReady]=useState(!supabase),[recovery,setRecovery]=useState(false),[factor,setFactor]=useState(''),[code,setCode]=useState(''),[error,setError]=useState(''),[waiting,setWaiting]=useState(false)
-  useEffect(()=>{if(!supabase)return;let live=true;supabase.auth.getSession().then(({data,error})=>{if(!live)return;if(error)setError(error.message);setSession(data.session);setReady(true)});const {data}=supabase.auth.onAuthStateChange((event,next)=>{setSession(next);if(event==='PASSWORD_RECOVERY')setRecovery(true);setReady(true)});return()=>{live=false;data.subscription.unsubscribe()}},[])
-  const [checked,setChecked]=useState('')
-  useEffect(()=>{let live=true;setChecked('');setFactor('');if(!session){setStorageScope(null);setPreferenceScope('demo');setChecked('demo');return}supabase!.auth.mfa.getAuthenticatorAssuranceLevel().then(async({data,error})=>{if(error)throw error;if(data.nextLevel==='aal2'&&data.currentLevel!=='aal2'){const result=await supabase!.auth.mfa.listFactors();if(result.error)throw result.error;if(live)setFactor(result.data.totp[0]?.id??'')}else if(live){setStorageScope(session.user.id);setPreferenceScope(session.user.id);setChecked(session.user.id)}}).catch(e=>{if(live)setError(message(e))});return()=>{live=false}},[session])
-  async function verify(e:FormEvent){e.preventDefault();setWaiting(true);setError('');try{const result=await supabase!.auth.mfa.challengeAndVerify({factorId:factor,code});if(result.error)throw result.error;const next=await supabase!.auth.getSession();setSession(next.data.session)}catch(e){setError(message(e))}finally{setWaiting(false)}}
-  if(!ready)return <main className="account-gate"><p role="status">Checking your session…</p></main>
-  if(!session&&checked!=='demo')return <main className="account-gate"><p role="status">Opening demo portfolio…</p></main>
-  if(session&&checked!==session.user.id)return <main className="account-gate"><h1>Verify your sign-in</h1><p>Enter the six-digit code from your authenticator to open your portfolio.</p>{factor&&<form onSubmit={verify}><label className="field">Authenticator code<input value={code} onChange={e=>setCode(e.target.value)} inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" required/></label><button className="button button-primary" disabled={waiting}>Verify code</button></form>}{error&&<p role="alert">{error}</p>}<button className="text-button" onClick={()=>void supabase?.auth.signOut()}>Sign out</button></main>
-  return <Context.Provider value={{session,recovery}}><div key={checked}>{children}</div></Context.Provider>
+function useDialog(ref:RefObject<HTMLElement>,onClose:()=>void){
+  useEffect(()=>{
+    const previous=document.activeElement as HTMLElement|null,dialog=ref.current
+    const firstInput=dialog?.querySelector<HTMLElement>('input')??dialog?.querySelector<HTMLElement>('button')
+    firstInput?.focus()
+    const keyboard=(event:KeyboardEvent)=>{
+      if(event.key==='Escape'){event.preventDefault();onClose();return}
+      if(event.key!=='Tab'||!dialog)return
+      const controls=[...dialog.querySelectorAll<HTMLElement>('input:not([disabled]),button:not([disabled]),a[href]')],first=controls[0],last=controls.at(-1)
+      if(event.shiftKey&&document.activeElement===first){event.preventDefault();last?.focus()}
+      else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus()}
+    }
+    document.addEventListener('keydown',keyboard)
+    return()=>{document.removeEventListener('keydown',keyboard);if(previous?.isConnected)previous.focus()}
+  },[ref,onClose])
 }
 
-export function AccountPanel() {
-  const {session,recovery}=useAccount()
-  const [mode,setMode]=useState<'signin'|'signup'|'magic'|'reset'>('signin'),[email,setEmail]=useState(''),[password,setPassword]=useState(''),[busy,setBusy]=useState(false),[notice,setNotice]=useState(''),[error,setError]=useState(''),[factors,setFactors]=useState<{id:string;friendly_name?:string}[]>([]),[enrollment,setEnrollment]=useState<{id:string;secret:string;qr:string}|null>(null),[code,setCode]=useState(''),[confirmation,setConfirmation]=useState('')
-  async function refreshFactors(){if(!supabase||!session)return;const r=await supabase.auth.mfa.listFactors();if(r.error)throw r.error;setFactors(r.data.totp)}
-  useEffect(()=>{void refreshFactors().catch(e=>setError(message(e)))},[session])
-  async function run(action:()=>Promise<void>){setBusy(true);setError('');setNotice('');try{await action()}catch(e){setError(message(e))}finally{setBusy(false)}}
-  async function authenticate(e:FormEvent){e.preventDefault();await run(async()=>{if(!supabase)throw Error('Connect Supabase to enable account sign-in.');const result=mode==='magic'?await supabase.auth.signInWithOtp({email,options:{emailRedirectTo:redirect(),shouldCreateUser:false}}):mode==='reset'?await supabase.auth.resetPasswordForEmail(email,{redirectTo:redirect()}):mode==='signup'?await supabase.auth.signUp({email,password,options:{emailRedirectTo:redirect()}}):await supabase.auth.signInWithPassword({email,password});if(result.error)throw result.error;setPassword('');setNotice(mode==='signin'?'Signed in.':mode==='signup'?'Check your email to confirm your account.':'Check your email for the requested link.')} )}
-  return <details className="portfolio-settings account-settings" id="account-settings" open={recovery||undefined}><summary>Account & security <span>{session?.user.email??'Demo mode · sign in'}</span></summary><div className="settings-body">
-    <p className="settings-note">{session?'This account’s records are stored in this browser. Export a JSON backup before changing devices.':'Demo records stay in this browser. Sign-in opens a separate, empty portfolio for your account.'}</p>
-    {!supabase&&<p className="setup-note">Account services need a Supabase project. Configure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY using the setup guide. Demo tracking and JSON backups are available now.</p>}
-    {!session?<><div className="account-modes" role="group" aria-label="Sign-in method">{(['signin','signup','magic','reset'] as const).map(x=><button type="button" className={mode===x?'selected':''} onClick={()=>{setMode(x);setError('');setNotice('')}} key={x}>{({signin:'Password sign-in',signup:'Create account',magic:'Magic link',reset:'Reset password'})[x]}</button>)}</div><form className="settings-form" onSubmit={authenticate}><label className="field">Email address<input type="email" autoComplete="email" value={email} onChange={e=>setEmail(e.target.value)} required/></label>{(mode==='signin'||mode==='signup')&&<label className="field">Password<input type="password" minLength={8} autoComplete={mode==='signup'?'new-password':'current-password'} value={password} onChange={e=>setPassword(e.target.value)} required/></label>}<button className="button button-primary" disabled={!supabase||busy}>{busy?'Working…':({signin:'Sign in',signup:'Create account',magic:'Email magic link',reset:'Email password reset'})[mode]}</button></form></>:<>
-      <div className="account-actions"><button className="button button-quiet" disabled={busy} onClick={()=>void run(async()=>{const r=await supabase!.auth.signOut();if(r.error)throw r.error})}>Sign out</button></div>
-      <form className="settings-form" onSubmit={e=>{e.preventDefault();void run(async()=>{const r=await supabase!.auth.updateUser({password});if(r.error)throw r.error;setPassword('');setNotice('Password updated. You can now return to your portfolio.')})}}><label className="field">{recovery?'Set your new password':'Change password'}<input type="password" minLength={8} autoComplete="new-password" value={password} onChange={e=>setPassword(e.target.value)} required/></label><button className="button button-quiet" disabled={busy}>Update password</button></form>
-      <div className="security-block"><h3>Authenticator MFA</h3><p>Use a time-based code from an authenticator app. Keep access to your authenticator; recovery codes are not provided.</p>{factors.map(f=><div className="factor-row" key={f.id}><span>{f.friendly_name||'Authenticator'} · verified</span><button className="text-button" disabled={busy} onClick={()=>void run(async()=>{const r=await supabase!.auth.mfa.unenroll({factorId:f.id});if(r.error)throw r.error;await refreshFactors();setNotice('Authenticator removed.')})}>Remove factor</button></div>)}{!enrollment&&<button className="button button-quiet" disabled={busy} onClick={()=>void run(async()=>{const r=await supabase!.auth.mfa.enroll({factorType:'totp',friendlyName:`Yieldwise ${new Date().toLocaleString()}`});if(r.error)throw r.error;setEnrollment({id:r.data.id,secret:r.data.totp.secret,qr:r.data.totp.qr_code})})}>Add authenticator</button>}{enrollment&&<form onSubmit={e=>{e.preventDefault();void run(async()=>{const r=await supabase!.auth.mfa.challengeAndVerify({factorId:enrollment.id,code});if(r.error)throw r.error;setEnrollment(null);setCode('');await refreshFactors();setNotice('MFA is enabled.')})}}><img className="mfa-qr" src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(enrollment.qr)}`} alt="Scan this QR code in your authenticator app"/><label className="field">Setup key<input readOnly value={enrollment.secret}/></label><label className="field">Six-digit authenticator code<input inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" required value={code} onChange={e=>setCode(e.target.value)}/></label><button className="button button-primary" disabled={busy}>Verify & enable MFA</button><button type="button" className="text-button" onClick={()=>void run(async()=>{const r=await supabase!.auth.mfa.unenroll({factorId:enrollment.id});if(r.error)throw r.error;setEnrollment(null)})}>Cancel setup</button></form>}</div>
-      <div className="delete-account"><h3>Delete account permanently</h3><p>Deletes your Supabase login and its database records, and removes this account’s portfolio and settings from this browser. Export your backup first. Other devices’ local copies and downloaded backups remain under your control. Sign in again or verify MFA within the last five minutes.</p><form onSubmit={e=>{e.preventDefault();void run(async()=>{const r=await supabase!.functions.invoke('delete-account',{body:{confirmation}});if(r.error)throw r.error;clearPortfolio();localStorage.removeItem(preferenceKey());await supabase!.auth.signOut();setNotice('Account deleted.');setConfirmation('')})}}><label className="field">Type DELETE to confirm<input value={confirmation} onChange={e=>setConfirmation(e.target.value)} pattern="DELETE" required autoComplete="off"/></label><button className="button danger-button" disabled={busy||confirmation!=='DELETE'}>Delete my account</button></form></div>
-    </>}{notice&&<p className="success-message" role="status">{notice}</p>}{error&&<p className="validation-error" role="alert">{error}</p>}</div></details>
+export function AccountProvider({children}:{children:ReactNode}){
+  const [boot]=useState(()=>{
+    try{const profiles=loadProfiles();return {profiles,profile:currentLocalProfile(),hasGuest:profiles.length===0&&hasBrowserPortfolio(),error:''}}
+    catch(error){return {profiles:[] as LocalProfile[],profile:null,hasGuest:false,error:message(error)}}
+  })
+  const [profile,setProfile]=useState<LocalProfile|null>(boot.profile)
+  const [profiles,setProfiles]=useState(boot.profiles)
+  const [creating,setCreating]=useState(false)
+  const [dialogOpen,setDialogOpen]=useState(!boot.profile&&boot.profiles.length>0)
+  const closeDialog=useCallback(()=>setDialogOpen(false),[])
+  // Children mount only after their local storage scopes have been selected.
+  if(profile){setStorageScope(profile.id);setPreferenceScope(profile.id)}
+  function activate(saved:LocalProfile){
+    const opened=openLocalProfile(saved.id)
+    setStorageScope(opened.id);setPreferenceScope(opened.id)
+    setProfile(opened);setProfiles(loadProfiles());setCreating(false);setDialogOpen(false)
+  }
+  const context:ProfileContext={
+    profile,
+    openExisting:()=>setDialogOpen(true),
+    startNew:()=>{setDialogOpen(false);setCreating(true)},
+    closeProfile:()=>{closeLocalProfile();setProfile(null);setCreating(false);setDialogOpen(false)},
+    update:details=>{if(!profile)return;const updated=updateLocalProfile(profile.id,details);setProfile(updated);setProfiles(loadProfiles())},
+    remove:()=>{if(!profile)return;removeLocalProfile(profile.id);setProfile(null);setProfiles(loadProfiles());setCreating(false);setDialogOpen(false)},
+  }
+  if(boot.error)return <main className="profile-onboarding"><div className="profile-form-card"><h1>Your profiles need attention</h1><p role="alert">{boot.error}</p><p>Enable browser storage and reload. Existing investment records have not been reset.</p><button className="button button-primary" onClick={()=>location.reload()}>Try again</button></div></main>
+  return <Context.Provider value={context}>
+    {profile&&!creating?<div key={profile.id}>{children}</div>:<CreateProfilePage canCancel={Boolean(profile)} hasProfiles={profiles.length>0} canKeepBrowser={profiles.length===0&&boot.hasGuest} onCancel={()=>setCreating(false)} onExisting={context.openExisting} onCreate={(details,keep)=>activate(createLocalProfile(details,keep))}/>}
+    {dialogOpen&&<OpenProfileDialog onClose={closeDialog} onOpen={activate} onCreate={context.startNew}/>}
+  </Context.Provider>
+}
+
+export function CreateProfilePage({canCancel,hasProfiles,canKeepBrowser,onCancel,onExisting,onCreate}:{canCancel:boolean;hasProfiles:boolean;canKeepBrowser:boolean;onCancel:()=>void;onExisting:()=>void;onCreate:(details:ProfileDetails,keep:boolean)=>void}){
+  const [name,setName]=useState(''),[email,setEmail]=useState(''),[keep,setKeep]=useState(canKeepBrowser),[error,setError]=useState('')
+  function submit(event:FormEvent){event.preventDefault();setError('');try{onCreate({name,email},canKeepBrowser&&keep)}catch(error){setError(message(error))}}
+  return <main className="profile-onboarding">
+    <a className="brand onboarding-brand" href="#profile" aria-label="Yieldwise home"><span className="brand-mark" aria-hidden="true">y</span>yieldwise</a>
+    <div className="profile-welcome-grid">
+      <section className="profile-welcome-copy"><span className="section-kicker">YOUR PORTFOLIO, YOUR SPACE</span><h1>Start with a profile.<br/>Build from here.</h1><p>Give your investments a home on this device. Track your capital, record its changes and see your estimated income in Kenyan shillings.</p><div className="profile-step"><span>01</span><div><strong>Create your profile</strong><p>Your name and email identify your workspace.</p></div></div><div className="profile-step"><span>02</span><div><strong>Add your investments</strong><p>Bring together MMFs, bonds and other income investments.</p></div></div><div className="profile-step"><span>03</span><div><strong>Follow the changes</strong><p>Keep a dated ledger and work toward your income goal.</p></div></div><p className="profile-device-note">Local prototype · no cloud sync · no password protection</p></section>
+      <section className="profile-form-card" aria-labelledby="create-profile-title"><div className="profile-card-kicker">WELCOME TO YIELDWISE</div><h2 id="create-profile-title">Create a new profile</h2><p>These details are saved only in this browser. Your email is an identifier; no email will be sent.</p>
+        <form onSubmit={submit}><label className="field">Full name<input autoComplete="name" minLength={2} maxLength={80} required value={name} onChange={e=>setName(e.target.value)} placeholder="Your name"/></label><label className="field">Email address<input type="email" autoComplete="email" maxLength={254} required value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com"/></label>
+          {canKeepBrowser&&<label className="profile-checkbox"><input type="checkbox" checked={keep} onChange={e=>setKeep(e.target.checked)}/><span>Keep my existing browser investments and KES settings in this profile. The originals will also remain in browser storage.</span></label>}
+          {error&&<p className="validation-error" role="alert">{error}</p>}<button className="button button-primary profile-submit" type="submit">Create profile & open portfolio <span aria-hidden="true">→</span></button>
+        </form>
+        <div className="profile-form-footer"><p>{hasProfiles?'Already have a profile on this device?':'Returning to a profile saved on this device?'}</p><button className="text-button" onClick={onExisting}>Open an existing profile</button>{canCancel&&<button className="text-button" onClick={onCancel}>Back to my profile</button>}</div>
+      </section>
+    </div>
+  </main>
+}
+
+export function OpenProfileDialog({onClose,onOpen,onCreate}:{onClose:()=>void;onOpen:(profile:LocalProfile)=>void;onCreate:()=>void}){
+  const ref=useRef<HTMLElement>(null)
+  useDialog(ref,onClose)
+  const [name,setName]=useState(''),[email,setEmail]=useState(''),[error,setError]=useState('')
+  function submit(event:FormEvent){event.preventDefault();setError('');try{onOpen(findLocalProfile({name,email}))}catch(error){setError(message(error))}}
+  return <div className="modal-backdrop" onMouseDown={event=>{if(event.target===event.currentTarget)onClose()}}><section ref={ref} className="profile-dialog" role="dialog" aria-modal="true" aria-labelledby="open-profile-title" aria-describedby="open-profile-note"><div className="profile-dialog-header"><span className="section-kicker">WELCOME BACK</span><button className="icon-button" onClick={onClose} aria-label="Close profile popup">×</button></div><h2 id="open-profile-title">Open your profile</h2><p id="open-profile-note">Enter the name and email you used on this device. This selects a local workspace; it is not a secure sign-in.</p><form onSubmit={submit}><label className="field">Full name<input autoComplete="name" required minLength={2} maxLength={80} value={name} onChange={e=>setName(e.target.value)}/></label><label className="field">Email address<input autoComplete="email" type="email" required maxLength={254} value={email} onChange={e=>setEmail(e.target.value)}/></label>{error&&<p role="alert" className="validation-error">{error}</p>}<button className="button button-primary profile-submit">Open profile <span aria-hidden="true">→</span></button></form><div className="profile-form-footer"><button className="text-button" onClick={onCreate}>Create a new profile instead</button><button className="text-button" onClick={onClose}>Cancel</button></div></section></div>
+}
+
+export function ProfilePage({onBackup}:{onBackup:()=>void}){
+  const {profile,openExisting,startNew,closeProfile,update,remove}=useAccount()
+  const [name,setName]=useState(profile?.name??''),[email,setEmail]=useState(profile?.email??''),[error,setError]=useState(''),[notice,setNotice]=useState(''),[confirming,setConfirming]=useState(false),[confirmation,setConfirmation]=useState('')
+  if(!profile)return null
+  function save(event:FormEvent){event.preventDefault();setError('');setNotice('');try{update({name,email});setNotice('Profile details saved on this device.')}catch(error){setError(message(error))}}
+  function deleteProfile(event:FormEvent){event.preventDefault();setError('');if(confirmation!=='REMOVE')return;try{remove()}catch(error){setError(message(error))}}
+  const initials=profile.name.split(' ').slice(0,2).map(word=>word[0]).join('').toUpperCase()
+  return <section className="profile-page" aria-labelledby="profile-title"><div className="page-heading"><div><span className="section-kicker">YOUR WORKSPACE</span><h1 id="profile-title">Profile<span className="heading-period">.</span></h1><p className="subheading">Your details, your portfolio and this device.</p></div><span className="reporting-badge">Saved in this browser</span></div>
+    <div className="profile-summary"><span className="profile-avatar" aria-hidden="true">{initials}</span><div><h2>{profile.name}</h2><p>{profile.email}</p><small>Profile created {new Date(profile.createdAt).toLocaleDateString(undefined,{dateStyle:'medium'})}</small></div></div>
+    <div className="profile-page-grid"><section className="panel profile-details"><h2>Your details</h2><p>Changing these details keeps your investments, ledger and KES settings.</p><form onSubmit={save}><label className="field">Full name<input autoComplete="name" required minLength={2} maxLength={80} value={name} onChange={e=>setName(e.target.value)}/></label><label className="field">Email address<input type="email" autoComplete="email" required maxLength={254} value={email} onChange={e=>setEmail(e.target.value)}/></label><button className="button button-primary">Save profile details</button></form></section>
+    <section className="panel profile-privacy"><h2>On this device</h2><p>Investments and settings belong to this local profile and stay in this browser. They do not sync to another device.</p><p>Local profiles are not password protected. Anyone using this browser can open a saved profile.</p><button className="button button-quiet" onClick={onBackup}>Back up my portfolio</button><div className="profile-workspace-actions"><button className="text-button" onClick={openExisting}>Open another profile</button><button className="text-button" onClick={startNew}>Create another profile</button><button className="text-button" onClick={closeProfile}>Close this profile</button></div></section></div>
+    {error&&<p className="validation-error" role="alert">{error}</p>}{notice&&<p className="success-message" role="status">{notice}</p>}
+    <section className="profile-remove"><h2>Remove this local profile</h2><p>Removes this profile, its investments and its settings from this browser. Export a backup first. Downloaded backups and other profiles are kept.</p>{!confirming?<button className="text-button profile-danger" onClick={()=>setConfirming(true)}>Remove profile…</button>:<form onSubmit={deleteProfile}><label className="field">Type REMOVE to confirm<input autoComplete="off" required pattern="REMOVE" value={confirmation} onChange={e=>setConfirmation(e.target.value)}/></label><div className="profile-remove-actions"><button className="button danger-button" disabled={confirmation!=='REMOVE'}>Remove this profile</button><button className="button button-quiet" type="button" onClick={()=>{setConfirming(false);setConfirmation('')}}>Cancel</button></div></form>}</section>
+  </section>
 }

@@ -57,6 +57,12 @@ A market field instrument: a clear, active interface for reading time, cash flow
 
 
 ## Navigation
-- Use a persistent left sidebar on desktop for Overview, Investments and How estimates work. Keep Account & security and portfolio storage status at the bottom.
+- Use a persistent left sidebar on desktop for Overview, Investments and How estimates work. Provide Profile as a dedicated sidebar destination and keep Switch profile and local storage status at the bottom.
 - On screens at or below 760px, use a compact brand header with a Menu disclosure. Expanded navigation stays in normal document flow. Selecting a destination closes the menu and focuses the destination; Escape closes the menu and returns focus to its toggle.
 - Active navigation uses the cobalt surface treatment with a visible location indicator. Honor reduced motion when scrolling between sections.
+
+## Local profiles
+- New visitors see a dedicated profile-creation page. Returning visitors without an active tab session get a name/email popup.
+- Profile is a full page in the sidebar, not a section below the overview. Preserve keyboard focus on navigation and restore it after popup cancellation.
+- State that profiles are stored only in this browser and are not password protected. Do not present local profile selection as authentication or expose developer setup notices in the product.
+- Use the existing light surfaces, serif headings, cobalt actions and green/citrus initials. Keep forms to name and email while the backend is deferred.

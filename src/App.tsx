@@ -4,7 +4,7 @@ import { addMonths, estimate, estimateLabel, formatMoney, investmentState, nextP
 import { appendEvent, deleteInvestment, loadInvestments, restoreInvestment, saveInvestment, setInvestmentStatus } from './lib/localStore'
 import { parsePdf } from './lib/pdfImport'
 import type { Frequency, Investment, InvestmentInput, InvestmentType } from './types'
-import { AccountPanel, useAccount } from './Account'
+import { ProfilePage, useAccount } from './Account'
 import { PortfolioTools } from './PortfolioTools'
 import { defaultPreferences, loadPreferences, savePreferences, type Preferences } from './lib/preferences'
 import { currencyCodes, kesRate, withKesRate } from './lib/currency'
@@ -24,9 +24,9 @@ export function buildInvestmentCsv(items:Investment[],asOf=new Date()):string {
 }
 
 function App() {
-  const { session } = useAccount()
+  const { profile, openExisting } = useAccount()
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false)
-  const [activeSection, setActiveSection] = useState('dashboard')
+  const [activeSection, setActiveSection] = useState(()=>typeof window!=='undefined'&&window.location.hash==='#profile'?'profile':'dashboard')
   const navigationToggle = useRef<HTMLButtonElement>(null)
   useEffect(() => {
     const close = (event: KeyboardEvent) => {
@@ -41,15 +41,20 @@ function App() {
   function navigateTo(section: string) {
     setActiveSection(section)
     setMobileNavigationOpen(false)
-    const destination = document.getElementById(section)
-    if (destination instanceof HTMLDetailsElement) destination.open = true
-    if (section === 'formula-details') destination?.querySelector('details')?.setAttribute('open', '')
     requestAnimationFrame(() => {
+      const destination = document.getElementById(section)
+      if (destination instanceof HTMLDetailsElement) destination.open = true
+      if (section === 'formula-details') destination?.querySelector('details')?.setAttribute('open', '')
       destination?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start' })
       if (destination) { destination.tabIndex = -1; destination.focus({ preventScroll: true }) }
-      history.replaceState(null, '', `#${section}`)
+      if(location.hash!==`#${section}`)history.pushState(null, '', `#${section}`)
     })
   }
+  useEffect(()=>{
+    const sync=()=>setActiveSection(window.location.hash==='#profile'?'profile':'dashboard')
+    window.addEventListener('popstate',sync);window.addEventListener('hashchange',sync)
+    return()=>{window.removeEventListener('popstate',sync);window.removeEventListener('hashchange',sync)}
+  },[])
   const projectionRef = useRef<HTMLElement>(null)
   const [items, setItems] = useState<Investment[]>([])
   const [busy, setBusy] = useState(true)
@@ -158,7 +163,7 @@ function App() {
     const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); link.download = 'yieldwise-investments.csv'; link.click(); URL.revokeObjectURL(link.href)
   }
 
-  return <div className={`app-shell sidebar-layout ${mobileNavigationOpen ? 'sidebar-open' : ''}`}><a className="skip-link" href="#dashboard">Skip to portfolio</a>
+  return <div className={`app-shell sidebar-layout ${mobileNavigationOpen ? 'sidebar-open' : ''}`}><a className="skip-link" href={activeSection==='profile'?'#profile':'#dashboard'}>Skip to content</a>
     <header className="mobile-header">
       <a href="#dashboard" className="brand" onClick={e=>{e.preventDefault();navigateTo('dashboard')}} aria-label="Yieldwise home"><span className="brand-mark"><Activity size={19} strokeWidth={2.5}/></span>yieldwise</a>
       <button ref={navigationToggle} type="button" className="button button-quiet navigation-toggle" aria-expanded={mobileNavigationOpen} aria-controls="primary-sidebar" onClick={()=>setMobileNavigationOpen(open=>!open)}>{mobileNavigationOpen?<X size={18}/>:<WalletCards size={18}/>} {mobileNavigationOpen?'Close menu':'Menu'}</button>
@@ -170,23 +175,25 @@ function App() {
         <a href="#dashboard" className={activeSection==='dashboard'?'active':''} aria-current={activeSection==='dashboard'?'location':undefined} onClick={e=>{e.preventDefault();navigateTo('dashboard')}}><ChartNoAxesCombined size={18}/>Overview</a>
         <a href="#investments" className={activeSection==='investments'?'active':''} aria-current={activeSection==='investments'?'location':undefined} onClick={e=>{e.preventDefault();navigateTo('investments')}}><WalletCards size={18}/>Investments</a>
         <a href="#formula-details" className={activeSection==='formula-details'?'active':''} aria-current={activeSection==='formula-details'?'location':undefined} onClick={e=>{e.preventDefault();navigateTo('formula-details')}}><CircleHelp size={18}/><span>How estimates work</span></a>
+        <a href="#profile" className={activeSection==='profile'?'active':''} aria-current={activeSection==='profile'?'page':undefined} onClick={e=>{e.preventDefault();navigateTo('profile')}}><LockKeyhole size={18}/><span>Profile</span></a>
       </nav>
       <div className="sidebar-bottom">
-        <button type="button" className={`sidebar-account ${activeSection==='account-settings'?'active':''}`} onClick={()=>navigateTo('account-settings')}><LockKeyhole size={18}/>Account & security<ArrowRight size={15}/></button>
-        <div className="sidebar-status"><span className="status-dot"/>{session?'Personal portfolio':'Demo portfolio'}<small>Stored in this browser</small></div>
+        <button type="button" className="sidebar-account" onClick={openExisting}><LockKeyhole size={18}/>Switch profile<ArrowRight size={15}/></button>
+        <div className="sidebar-status"><span className="status-dot"/>{profile?.name??'Local portfolio'}<small>Stored in this browser</small></div>
       </div>
     </aside>
 
-    <main id="dashboard" className="main-content">
+    <main id={activeSection==='profile'?'profile':'dashboard'} className="main-content">
+      {activeSection==='profile'?<ProfilePage onBackup={()=>navigateTo('portfolio-settings')}/>:<>
       <div className="page-heading"><div><h1>Your portfolio, in motion<span className="heading-period">.</span></h1><p className="subheading">See how dates, cash flows and stated terms shape what your investments may earn.</p></div>
         <div className="heading-actions">{hasData && <button className="button button-quiet" onClick={exportCsv}><ArrowDownToLine size={16} /> Export</button>}<button className="button button-primary" onClick={openAdd}><Plus size={17} /> Add investment</button></div>
       </div>
       {error && <div className="alert error-alert" role="alert"><CircleHelp size={18} />{error}<button aria-label="Dismiss error" onClick={() => setError('')}><X size={16} /></button></div>}
-      <div className="demo-banner"><ShieldCheck size={17} /><span><strong>{session?"Account portfolio.":"Local portfolio."}</strong> Records stay in this browser{session?" under your account.":" on this device."} Export JSON to back up your data.</span></div>
+      <div className="demo-banner"><ShieldCheck size={17} /><span><strong>{profile?profile.name+'’s portfolio.':'Local portfolio.'}</strong> Records stay in this browser{profile?" under this profile.":" on this device."} Export JSON to back up your data.</span></div>
       {visible.some(x=>investmentState(x)==='Matured')&&<div className="maturity-banner" role="status"><CalendarDays size={17}/><div><strong>Matured: renew or close?</strong><span>{visible.filter(x=>investmentState(x)==='Matured').map(x=>x.name).join(', ')} reached maturity. Review provider options; close records from their row or edit dates/terms to track a renewal.</span></div></div>}
 
       {!busy&&<PortfolioTools items={items} onImport={setItems} preferences={preferences} onPreferencesChange={setPreferences}/>}
-      {busy ? <div className="skeleton-panel" aria-label="Loading investments"><div /><div /><div /></div> : !hasData ? <EmptyState onAdd={openAdd} demo={!session} /> : <>
+      {busy ? <div className="skeleton-panel" aria-label="Loading investments"><div /><div /><div /></div> : !hasData ? <EmptyState onAdd={openAdd} /> : <>
         <div className="metric-grid">
           <Metric icon={<WalletCards size={17} />} label="Principal currently invested" value={totalsBlocked?'Set conversion rates':formatMoney(principal, currency)} detail={`${eligible.length} active or matured holdings · ${currency}`} />
           <Metric icon={<Landmark size={17} />} label="Estimated current value" value={totalsBlocked?'Set conversion rates':currentMetric} detail={<>{unknownTerms?'Range reflects unknown interest treatment':'Includes entered dates and terms'} <span className="tiny-info" title="Estimates are scenarios, not guarantees">ⓘ</span></>} />
@@ -221,7 +228,7 @@ function App() {
       <section className="panel monthly-panel"><div className="section-kicker"><CalendarDays size={15}/> MONTHLY INCOME VIEW</div><h2>Income payouts due this month</h2><p>Today through month-end · estimated interest after entered tax. Dates are approximate; reinvested income is excluded.</p><div className="monthly-payouts">{monthlyPayouts.map(({item,date,amount})=><span key={item.id+dateKey(date)}><strong>{item.name}</strong> · {date.toLocaleDateString(undefined,{month:'short',day:'numeric'})} · {(kesRate(item.currency,preferences.rates)===null?'KES rate needed':formatMoney(amount*fx(item),'KES'))+(item.currency!=='KES'?' ('+formatMoney(amount,item.currency)+')':'')}</span>)}{monthlyPayouts.length===0&&<span>No known cash payouts due in the remaining month. Check provider terms for exact dates.</span>}</div></section>
       <section className="trust-strip" id="methodology"><div className="trust-icon"><LockKeyhole size={17} /></div><div><strong>Built for clarity and privacy</strong><p>Your estimates are based on the details you enter. This is a tracking tool, not financial advice.</p></div><button className="text-button" onClick={openMethodology}>How we calculate <ArrowRight size={14} /></button></section>
       <section className="methodology" id="formula-details"><details><summary><span><CircleHelp size={15} /> Formulas, assumptions & limitations</span><ChevronDown size={15} /></summary><div className="method-copy"><p><strong>Event ledger:</strong> ACT/365 accrual is calculated between each dated deposit, withdrawal, and rate change. Compound segments use balance × ((1 + rate / m)^(m × days / 365) − 1), with rate as a decimal. Paid-out and at-maturity terms use principal × rate × days / 365. At-maturity interest is retained without interim compounding. Withdrawals reduce balance from their event date.</p><p><strong>Unknown terms:</strong> show a range between simple accrual and daily compounding. These are illustrative bounds, not a probability range. Unknown payout timing alone does not imply reinvestment. Paid-out income is excluded from account value. Tax is a display adjustment, not withholding within compounding, and is deducted only for a gross stated yield: net estimate = gross interest × (1 − entered tax rate).</p><p>Scheduled and closed investments are excluded from portfolio totals; matured investments stop accruing on their maturity date and require review. Payouts show interest for each payment period after entered tax, including dates due today. Reinvested interest is not cash income. Dates use start-date anniversaries, or entered coupon months with the start day as an approximation. Remaining accrued interest is assumed settled at maturity. Check provider dates and coupon conventions. MMF yields are held constant only as a scenario. Price changes, fees, irregular rounding and tax rules are not independently validated.</p><p className="disclaimer">Estimates are illustrative, may differ from provider calculations, are not guaranteed returns, and are not financial advice.</p></div></details></section>
-      <AccountPanel/>
+      </>}
       <footer className="footer"><span>© 2026 Yieldwise prototype</span><span>Simple by design <span className="footer-dot">·</span> Private by default</span></footer>
     </main>
     {modal && <InvestmentModal key={editing?.id ?? 'new'} initial={editing} existingItems={items} preferences={preferences} onClose={() => { setModal(false); setEditing(null) }} onRecordEvent={(item,kind)=>{setModal(false);recordEvent(item,kind)}} onSave={save} />}
@@ -257,8 +264,8 @@ function InvestmentCard({ item, onEdit, onDelete, onEvent, onReconcile }: { item
   const state=investmentState(item), est=estimate(item,new Date()), payout=nextPayout(item)
   return <article className="investment-mobile-card" role="row" aria-label={`${item.name} investment details`}><div className="mobile-card-top" role="cell"><div className="investment-identity"><span className={`investment-icon ${item.type.toLowerCase()}`}>{item.type === 'Bond' ? <Landmark size={17} /> : <Activity size={17} />}</span><div><strong>{item.name}</strong><span>{item.provider} · {item.type} · {state}</span></div></div><div className="row-actions"><button className="icon-button" aria-label={`Edit ${item.name}`} onClick={onEdit}><Pencil size={15} /></button><button className="icon-button" aria-label={item.type==="MMF"?`Update yield for ${item.name}`:`Top up or withdraw ${item.name}`} title={item.type==="MMF"?"Update yield":"Record event"} onClick={onEvent}><ArrowDownUp size={15}/></button><button className="icon-button danger-hover" aria-label={`Delete ${item.name}`} onClick={onDelete}><Trash2 size={15} /></button></div></div><div className="mobile-card-stats" role="presentation"><div role="cell"><span>Principal</span><strong>{formatMoney(est.principal, item.currency)}</strong></div><div role="cell"><span>Rate</span><strong>{currentYield(item).toFixed(2)}%</strong></div><div role="cell"><span>Earned*</span><strong>{(hasUnknownTerms(item)?`${formatMoney(est.low*taxFactor(item),item.currency)}–${formatMoney(est.high*taxFactor(item),item.currency)}`:formatMoney(est.interest*taxFactor(item),item.currency))}</strong></div></div><div className="mobile-dates" role="cell"><span>Next payout: {payout?.toLocaleDateString()??'Not provided'}</span>{item.maturityDate&&<span>Maturity: {new Date(`${item.maturityDate}T12:00`).toLocaleDateString()}</span>}</div><label className="mobile-reconcile" role="cell">My statement shows <input type="number" min="0" step="0.01" value={statementValue} onChange={e=>setStatementValue(e.target.value)} onBlur={()=>{if(statementValue!=='')onReconcile(Number(statementValue))}} placeholder={item.currency}/> {item.statementValue!==null&&<span>Gap {formatMoney(item.statementValue-netValue(item,new Date()),item.currency)}</span>}</label><small role="cell">{estimateLabel(item)}</small></article>
 }
-function EmptyState({ onAdd, demo }: { onAdd: () => void; demo: boolean }) {
-  return <section className="empty-state panel" id="investments"><div className="empty-art"><span className="empty-art-ring ring-one" /><span className="empty-art-ring ring-two" /><span className="empty-art-icon"><ChartNoAxesCombined size={28} /></span><span className="floating-dot dot-a" /><span className="floating-dot dot-b" /></div><div className="empty-eyebrow">A LITTLE MORE CLARITY</div><h2>Your investments, in one clear view.</h2><p>Add an income-generating investment to see estimated earnings and a simple projection. You can start with just the details you know.</p><button className="button button-primary" onClick={onAdd}><Plus size={17} /> Add your first investment</button><div className="empty-foot"><ShieldCheck size={14} /> {demo ? 'Your data stays in this browser.' : 'Your records are private to your signed-in account.'}</div></section>
+function EmptyState({ onAdd }: { onAdd: () => void }) {
+  return <section className="empty-state panel" id="investments"><div className="empty-art"><span className="empty-art-ring ring-one" /><span className="empty-art-ring ring-two" /><span className="empty-art-icon"><ChartNoAxesCombined size={28} /></span><span className="floating-dot dot-a" /><span className="floating-dot dot-b" /></div><div className="empty-eyebrow">A LITTLE MORE CLARITY</div><h2>Your investments, in one clear view.</h2><p>Add an income-generating investment to see estimated earnings and a simple projection. You can start with just the details you know.</p><button className="button button-primary" onClick={onAdd}><Plus size={17} /> Add your first investment</button><div className="empty-foot"><ShieldCheck size={14} /> Your records stay in this local profile on this browser.</div></section>
 }
 
 function InvestmentModal({ initial, existingItems, preferences, onClose, onRecordEvent, onSave }: { initial: Investment | null; existingItems:Investment[];preferences:Preferences; onClose: () => void; onRecordEvent:(item:Investment,kind:'deposit'|'withdrawal'|'rate_change')=>void; onSave: (input: InvestmentInput, id?: string, keepOpen?:boolean,exchangeRate?:number) => Promise<void> }) {
