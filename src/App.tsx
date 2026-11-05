@@ -6,10 +6,12 @@ import { parsePdf } from './lib/pdfImport'
 import type { Frequency, Investment, InvestmentInput, InvestmentType } from './types'
 import { AccountPanel, useAccount } from './Account'
 import { PortfolioTools } from './PortfolioTools'
+import { defaultPreferences, loadPreferences, savePreferences, type Preferences } from './lib/preferences'
+import { currencyCodes, kesRate, withKesRate } from './lib/currency'
 
-const blank: InvestmentInput = { provider: '', name: '', type: 'MMF', principal: 0, currency: 'USD', annualRate: 0, startDate: dateKey(new Date()), maturityDate: null, frequency: 'unknown', interestMode: 'unknown', yieldBasis: 'gross', taxRate: 0, statementValue: null, couponMonths: [] }
+const blank: InvestmentInput = { provider: '', name: '', type: 'MMF', principal: 0, currency: 'KES', annualRate: 0, startDate: dateKey(new Date()), maturityDate: null, frequency: 'unknown', interestMode: 'unknown', yieldBasis: 'gross', taxRate: 0, statementValue: null, couponMonths: [] }
 const frequencyLabels: Record<Frequency, string> = { daily: 'Daily', monthly: 'Monthly', quarterly: 'Quarterly', semiannual: 'Semiannually', annual: 'Annually', at_maturity: 'At maturity', unknown: 'Not sure' }
-const currencyOptions = ['USD', 'EUR', 'GBP', 'KES', 'CAD', 'AUD', 'INR', 'ZAR', 'NGN', 'GHS']
+const currencyOptions = currencyCodes
 
 function App() {
   const { session } = useAccount()
@@ -46,7 +48,8 @@ function App() {
   const [modal, setModal] = useState(false)
   const [editing, setEditing] = useState<Investment | null>(null)
   const [months, setMonths] = useState(12)
-  const [currency, setCurrency] = useState('USD')
+  const currency = 'KES'
+  const [preferences,setPreferences]=useState<Preferences>(()=>{try{return loadPreferences()}catch{return {...defaultPreferences,rates:{}}}})
   const [toast, setToast] = useState('')
   const [undoItem, setUndoItem] = useState<Investment | null>(null)
   const [eventFor, setEventFor] = useState<Investment | null>(null)
@@ -56,41 +59,44 @@ function App() {
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null)
 
   const refresh = useCallback(() => {
-    try { setItems(loadInvestments()); setError('') }
+    try { setItems(loadInvestments()); setPreferences(loadPreferences()); setError('') }
     catch (e) { setError(e instanceof Error ? e.message : 'Could not load your investments.') }
     finally { setBusy(false) }
   }, [])
 
   useEffect(() => { refresh() }, [refresh])
 
-  const currencies = useMemo(() => [...new Set(items.map(x => x.currency))], [items])
-  useEffect(() => { if (currencies.length && !currencies.includes(currency)) setCurrency(currencies[0]) }, [currencies, currency])
-  const visible = items.filter(x => x.currency === currency)
+  const visible = items
   const now = new Date()
   const eligible = visible.filter(x => ['Active','Matured'].includes(investmentState(x, now)))
-  const principal = eligible.reduce((sum, x) => sum + estimate(x, now).principal, 0)
-  const currentValue = eligible.reduce((sum, x) => sum+netValue(x,now), 0)
+  const missingRates=[...new Set(eligible.filter(x=>kesRate(x.currency,preferences.rates)===null).map(x=>x.currency))]
+  const needsRates=missingRates.length>0
+  const fx=(item:Investment)=>kesRate(item.currency,preferences.rates)??0
+  const principal = eligible.reduce((sum, x) => sum + estimate(x, now).principal*fx(x), 0)
+  const currentValue = eligible.reduce((sum, x) => sum+netValue(x,now)*fx(x), 0)
   const horizon = addMonths(now, months)
-  const futureEarned = eligible.reduce((sum, x) => sum + Math.max(0, estimate(x, horizon).interest - estimate(x, now).interest) * (x.yieldBasis === 'gross' ? 1 - x.taxRate/100 : 1), 0)
+  const futureEarned = eligible.reduce((sum, x) => sum + Math.max(0, estimate(x, horizon).interest - estimate(x, now).interest) * (x.yieldBasis === 'gross' ? 1 - x.taxRate/100 : 1)*fx(x), 0)
   const unknownTerms=eligible.some(hasUnknownTerms)
-  const portfolioRange=(date:Date)=>eligible.reduce((range,x)=>{const e=valueRange(x,date);return {low:range.low+e.low,high:range.high+e.high}},{low:0,high:0})
-  const futureRange=eligible.reduce((range,x)=>{const e=incomeRange(x,now,horizon);return {low:range.low+e.low,high:range.high+e.high}},{low:0,high:0})
+  const portfolioRange=(date:Date)=>eligible.reduce((range,x)=>{const e=valueRange(x,date);return {low:range.low+e.low*fx(x),high:range.high+e.high*fx(x)}},{low:0,high:0})
+  const futureRange=eligible.reduce((range,x)=>{const e=incomeRange(x,now,horizon);return {low:range.low+e.low*fx(x),high:range.high+e.high*fx(x)}},{low:0,high:0})
   const nowRange=portfolioRange(now), currentMetric=unknownTerms?`Between ${formatMoney(nowRange.low,currency)} and ${formatMoney(nowRange.high,currency)}`:formatMoney(currentValue,currency)
   const projectedMetric=unknownTerms?`Between +${formatMoney(futureRange.low,currency)} and +${formatMoney(futureRange.high,currency)}`:`+${formatMoney(futureEarned,currency)}`
   const chartPoints = Array.from({ length: 7 }, (_, index) => {
     const date = addMonths(now, Math.round(months * index / 6))
-    return { date, value: eligible.reduce((sum, x) => sum+netValue(x,date), 0) }
+    return { date, value: eligible.reduce((sum, x) => sum+netValue(x,date)*fx(x), 0) }
   })
+  const conversionOverflow=[principal,currentValue,futureEarned,nowRange.low,nowRange.high,futureRange.low,futureRange.high,...chartPoints.map(p=>p.value)].some(v=>!Number.isFinite(v))
+  const totalsBlocked=needsRates||conversionOverflow
   const filtered = visible.filter(x => filterBy === 'all' || investmentState(x, now).toLowerCase() === filterBy).sort((a,b)=> {
     if(sortBy==='name') return a.name.localeCompare(b.name)
-    if(sortBy==='principal') return estimate(b,now).principal-estimate(a,now).principal
+    if(sortBy==='principal') return estimate(b,now).principal*fx(b)-estimate(a,now).principal*fx(a)
     if(sortBy==='rate') return currentYield(b)-currentYield(a)
-    if(sortBy==='earned') return estimate(b,now).interest-estimate(a,now).interest
+    if(sortBy==='earned') return estimate(b,now).interest*fx(b)-estimate(a,now).interest*fx(a)
     return (a.maturityDate??'9999').localeCompare(b.maturityDate??'9999')
   })
   const earning = eligible.filter(x=>investmentState(x,now)==='Active')
-  const earningPrincipal=earning.reduce((sum,x)=>sum+estimate(x,now).principal,0)
-  const weightedRate = earning.reduce((sum,x)=>sum+estimate(x,now).principal*currentYield(x,now),0)/(earningPrincipal||1)
+  const earningPrincipal=earning.reduce((sum,x)=>sum+estimate(x,now).principal*fx(x),0)
+  const weightedRate = earning.reduce((sum,x)=>sum+estimate(x,now).principal*fx(x)*currentYield(x,now),0)/(earningPrincipal||1)
   const monthlyPayouts=eligible.flatMap(item=>scheduledPayouts(item,now,new Date(now.getFullYear(),now.getMonth()+1,0)).map(payout=>({item,...payout}))).sort((a,b)=>a.date.getTime()-b.date.getTime())
   const timelineEvents = useMemo(() => {
     const end = addMonths(now, months)
@@ -117,9 +123,13 @@ function App() {
   const selectedEvent = timelineEvents.find(event => event.id === selectedEventId)
   const hasData = items.length > 0
 
-  async function save(input: InvestmentInput, id?: string, keepOpen=false) {
+  async function save(input: InvestmentInput, id?: string, keepOpen=false, exchangeRate?:number) {
     setError('')
-    const next = saveInvestment(input, id)
+    const nextPreferences={...preferences,baseCurrency:'KES',rates:input.currency==='KES'?preferences.rates:withKesRate(preferences.rates,input.currency,exchangeRate??NaN)}
+    savePreferences(nextPreferences)
+    let next:Investment[]
+    try{next=saveInvestment(input,id)}catch(e){savePreferences(preferences);throw e}
+    setPreferences(nextPreferences)
     setItems(next); if(!keepOpen){setModal(false); setEditing(null)}
     announce(id ? 'Investment updated' : 'Investment added')
   }
@@ -170,20 +180,20 @@ function App() {
       <div className="demo-banner"><ShieldCheck size={17} /><span><strong>{session?"Account portfolio.":"Demo portfolio."}</strong> Records stay in this browser{session?" under your account.":". Sample records help you explore."} Export JSON to back up your data.</span></div>
       {visible.some(x=>investmentState(x)==='Matured')&&<div className="maturity-banner" role="status"><CalendarDays size={17}/><div><strong>Matured: renew or close?</strong><span>{visible.filter(x=>investmentState(x)==='Matured').map(x=>x.name).join(', ')} reached maturity. Review provider options; close records from their row or edit dates/terms to track a renewal.</span></div></div>}
 
-      {!busy&&<PortfolioTools items={items} onImport={setItems}/>}
+      {!busy&&<PortfolioTools items={items} onImport={setItems} preferences={preferences} onPreferencesChange={setPreferences}/>}
       {busy ? <div className="skeleton-panel" aria-label="Loading investments"><div /><div /><div /></div> : !hasData ? <EmptyState onAdd={openAdd} demo={!session} /> : <>
         <div className="metric-grid">
-          <Metric icon={<WalletCards size={17} />} label="Total invested" value={formatMoney(principal, currency)} detail={`${eligible.length} active or matured holdings · ${currency}`} />
-          <Metric icon={<Landmark size={17} />} label="Estimated current value" value={currentMetric} detail={<>{unknownTerms?'Range reflects unknown interest treatment':'Includes entered dates and terms'} <span className="tiny-info" title="Estimates are scenarios, not guarantees">ⓘ</span></>} />
-          <Metric icon={<TrendingUp size={17} />} label={`Projected earnings · ${months} months`} value={projectedMetric} detail={`If rates hold · active weighted yield ${weightedRate.toFixed(2)}%`} emphasis />
+          <Metric icon={<WalletCards size={17} />} label="Total invested" value={totalsBlocked?'Set conversion rates':formatMoney(principal, currency)} detail={`${eligible.length} active or matured holdings · ${currency}`} />
+          <Metric icon={<Landmark size={17} />} label="Estimated current value" value={totalsBlocked?'Set conversion rates':currentMetric} detail={<>{unknownTerms?'Range reflects unknown interest treatment':'Includes entered dates and terms'} <span className="tiny-info" title="Estimates are scenarios, not guarantees">ⓘ</span></>} />
+          <Metric icon={<TrendingUp size={17} />} label={`Projected earnings · ${months} months`} value={totalsBlocked?'Set conversion rates':projectedMetric} detail={totalsBlocked?`Check KES rates: ${missingRates.join(', ')}`:`If rates hold · active weighted yield ${weightedRate.toFixed(2)}%`} emphasis />
         </div>
 
         <section ref={projectionRef} className="panel projection-panel" aria-labelledby="projection-title">
           <div className="section-head"><div><div className="section-kicker"><ChartNoAxesCombined size={15} /> PORTFOLIO OUTLOOK</div><h2 id="projection-title">Portfolio projection</h2><p className="section-description">Estimated value if principal and entered rates remain unchanged.</p></div>
-            <label className="select-wrap compact-select"><span className="sr-only">Projection currency</span><select value={currency} onChange={e => setCurrency(e.target.value)}>{currencies.map(c => <option key={c}>{c}</option>)}</select><ChevronDown size={14} /></label>
+            <span className="reporting-badge">KES · user-set rates</span>
           </div>
-            <div className="chart-summary"><strong>{formatMoney(currentValue, currency)}</strong><span>today</span><ArrowRight size={15} /><strong className="green-text">{formatMoney(chartPoints.at(-1)!.value, currency)}</strong><span>in {months} months</span><div className="period-control" role="group" aria-label="Projection period">{[[3, '3M'], [6, '6M'], [12, '1Y'], [24, '2Y']].map(([m, label]) => <button key={m} className={months === m ? 'selected' : ''} onClick={() => setMonths(Number(m))} aria-pressed={months === m}>{label}</button>)}</div></div>
-          <ProjectionChart points={chartPoints} currency={currency} breakdown={eligible} />
+            {totalsBlocked?<p className="fx-required" role="status">{needsRates?'Enter the '+missingRates.join(', ')+' to KES conversion rate above to calculate this projection.':'The entered rates produce values too large to display. Check your rates and investment terms.'}</p>:<><div className="chart-summary"><strong>{formatMoney(currentValue, currency)}</strong><span>today</span><ArrowRight size={15} /><strong className="green-text">{formatMoney(chartPoints.at(-1)!.value, currency)}</strong><span>in {months} months</span><div className="period-control" role="group" aria-label="Projection period">{[[3, '3M'], [6, '6M'], [12, '1Y'], [24, '2Y']].map(([m, label]) => <button key={m} className={months === m ? 'selected' : ''} onClick={() => setMonths(Number(m))} aria-pressed={months === m}>{label}</button>)}</div></div>
+          <ProjectionChart points={chartPoints} currency={currency} breakdown={eligible} rates={preferences.rates} /></>}
           <div className="event-rail" aria-label="Investment event timeline">
             <div className="event-rail-heading"><strong>Events shaping this view</strong><span>{months}-month window</span></div>
             {timelineEvents.length ? <div className="event-track">{timelineEvents.map(event => <button key={event.id} type="button" className={`event-node event-${event.kind} ${selectedEventId === event.id ? 'event-selected' : ''}`} aria-pressed={selectedEventId === event.id} onClick={() => setSelectedEventId(selectedEventId === event.id ? null : event.id)}><i aria-hidden="true" /><span><strong>{event.title}</strong><small>{new Date(`${event.date}T12:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</small><small className="event-investment">{event.investment}{event.amount ? ` · ${event.amount}` : ''}</small></span></button>)}</div> : <p className="event-empty">No dated events in this projection window yet. Add a top-up, rate change or payout term to build the timeline.</p>}
@@ -203,13 +213,13 @@ function App() {
         </section>
       </>}
 
-      <section className="panel monthly-panel"><div className="section-kicker"><CalendarDays size={15}/> MONTHLY INCOME VIEW</div><h2>Income payouts due this month</h2><p>Today through month-end · estimated interest after entered tax. Dates are approximate; reinvested income is excluded.</p><div className="monthly-payouts">{monthlyPayouts.map(({item,date,amount})=><span key={item.id+dateKey(date)}><strong>{item.name}</strong> · {date.toLocaleDateString(undefined,{month:'short',day:'numeric'})} · {formatMoney(amount,item.currency)}</span>)}{monthlyPayouts.length===0&&<span>No known cash payouts due in the remaining month. Check provider terms for exact dates.</span>}</div></section>
+      <section className="panel monthly-panel"><div className="section-kicker"><CalendarDays size={15}/> MONTHLY INCOME VIEW</div><h2>Income payouts due this month</h2><p>Today through month-end · estimated interest after entered tax. Dates are approximate; reinvested income is excluded.</p><div className="monthly-payouts">{monthlyPayouts.map(({item,date,amount})=><span key={item.id+dateKey(date)}><strong>{item.name}</strong> · {date.toLocaleDateString(undefined,{month:'short',day:'numeric'})} · {(kesRate(item.currency,preferences.rates)===null?'KES rate needed':formatMoney(amount*fx(item),'KES'))+(item.currency!=='KES'?' ('+formatMoney(amount,item.currency)+')':'')}</span>)}{monthlyPayouts.length===0&&<span>No known cash payouts due in the remaining month. Check provider terms for exact dates.</span>}</div></section>
       <section className="trust-strip" id="methodology"><div className="trust-icon"><LockKeyhole size={17} /></div><div><strong>Built for clarity and privacy</strong><p>Your estimates are based on the details you enter. This is a tracking tool, not financial advice.</p></div><button className="text-button" onClick={openMethodology}>How we calculate <ArrowRight size={14} /></button></section>
       <section className="methodology" id="formula-details"><details><summary><span><CircleHelp size={15} /> Formulas, assumptions & limitations</span><ChevronDown size={15} /></summary><div className="method-copy"><p><strong>Event ledger:</strong> ACT/365 accrual is calculated between each dated deposit, withdrawal, and rate change. Compound segments use balance × ((1 + rate / m)^(m × days / 365) − 1), with rate as a decimal. Paid-out and at-maturity terms use principal × rate × days / 365. At-maturity interest is retained without interim compounding. Withdrawals reduce balance from their event date.</p><p><strong>Unknown terms:</strong> show a range between simple accrual and daily compounding. These are illustrative bounds, not a probability range. Unknown payout timing alone does not imply reinvestment. Paid-out income is excluded from account value. Tax is a display adjustment, not withholding within compounding, and is deducted only for a gross stated yield: net estimate = gross interest × (1 − entered tax rate).</p><p>Scheduled and closed investments are excluded from portfolio totals; matured investments stop accruing on their maturity date and require review. Payouts show interest for each payment period after entered tax, including dates due today. Reinvested interest is not cash income. Dates use start-date anniversaries, or entered coupon months with the start day as an approximation. Remaining accrued interest is assumed settled at maturity. Check provider dates and coupon conventions. MMF yields are held constant only as a scenario. Price changes, fees, irregular rounding and tax rules are not independently validated.</p><p className="disclaimer">Estimates are illustrative, may differ from provider calculations, are not guaranteed returns, and are not financial advice.</p></div></details></section>
       <AccountPanel/>
       <footer className="footer"><span>© 2026 Yieldwise prototype</span><span>Simple by design <span className="footer-dot">·</span> Private by default</span></footer>
     </main>
-    {modal && <InvestmentModal key={editing?.id ?? 'new'} initial={editing} existingItems={items} onClose={() => { setModal(false); setEditing(null) }} onRecordEvent={(item,kind)=>{setModal(false);recordEvent(item,kind)}} onSave={save} />}
+    {modal && <InvestmentModal key={editing?.id ?? 'new'} initial={editing} existingItems={items} preferences={preferences} onClose={() => { setModal(false); setEditing(null) }} onRecordEvent={(item,kind)=>{setModal(false);recordEvent(item,kind)}} onSave={save} />}
     {eventFor && <EventModal key={`${eventFor.id}-${eventKind??'any'}`} item={eventFor} initialKind={eventKind} onClose={()=>{setEventFor(null);setEventKind(undefined)}} onSave={(event)=>{const updated=appendEvent(eventFor.id,event);setItems(updated);setEventFor(null);setEventKind(undefined);announce('Ledger event recorded')}} />}
     {toast && <div className="toast" role="status"><Check size={16} />{toast}{undoItem&&<button onClick={undoDelete}>Undo</button>}</div>}
   </div>
@@ -219,14 +229,14 @@ function Metric({ icon, label, value, detail, emphasis = false }: { icon: React.
   return <article className={`metric-card ${emphasis ? 'metric-emphasis' : ''}`}><div className="metric-top"><span className="metric-icon">{icon}</span><span>{label}</span></div><strong className={`metric-value ${value.startsWith('Between')?'metric-range':''}`}>{value}</strong><div className="metric-detail">{detail}</div></article>
 }
 
-function ProjectionChart({ points, currency, breakdown }: { points: { date: Date; value: number }[]; currency: string; breakdown: Investment[] }) {
+function ProjectionChart({ points, currency, breakdown, rates }: { points: { date: Date; value: number }[]; currency: string; breakdown: Investment[]; rates:Record<string,number> }) {
   const [activePoint, setActivePoint] = useState<number | null>(null)
   if (!points.length) return null
   const values = points.map(x => x.value), min = Math.min(...values), max = Math.max(...values), span = max - min || Math.max(max * 0.04, 1)
   const coords = points.map((point, i) => ({ x: 40 + i * 150, y: 124 - ((point.value - min) / span) * 78 }))
   const path = coords.map((p, i) => `${i ? 'L' : 'M'} ${p.x} ${p.y}`).join(' ')
   const area = `${path} L ${coords.at(-1)?.x} 142 L ${coords[0].x} 142 Z`
-  return <div className="chart-wrap"><div className="chart-tooltip" role="status" aria-live="polite">{activePoint === null ? 'Focus or hover a point to inspect its estimate' : <><strong>{points[activePoint].date.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}</strong><span>{formatMoney(points[activePoint].value, currency)}</span></>}</div><svg className="chart-svg" viewBox="0 0 940 170" role="img" aria-label={`Estimated portfolio value trend in ${currency}`} preserveAspectRatio="none"><defs><linearGradient id="fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#3159f5" stopOpacity=".2" /><stop offset="100%" stopColor="#3159f5" stopOpacity="0" /></linearGradient></defs>{[38, 82, 126].map(y => <line key={y} x1="35" y1={y} x2="925" y2={y} className="chart-grid" />)}<path d={area} fill="url(#fill)" /><path d={path} fill="none" className="chart-line" />{coords.map((p, i) => <g key={i} className="chart-point" tabIndex={0} role="img" aria-label={`${points[i].date.toLocaleDateString()} estimated value ${formatMoney(points[i].value,currency)}`} onFocus={() => setActivePoint(i)} onBlur={() => setActivePoint(null)} onMouseEnter={() => setActivePoint(i)} onMouseLeave={() => setActivePoint(null)}><circle cx={p.x} cy={p.y} r={i === coords.length - 1 ? 5 : 3.1} className="chart-dot" /><title>{`${points[i].date.toLocaleDateString()} · ${formatMoney(points[i].value,currency)}`}</title></g>)}</svg><div className="chart-labels">{[0, Math.ceil((points.length - 1) / 2), points.length - 1].map(i => <span key={i}>{points[i].date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>)}</div><div className="breakdown-list" aria-label="Projection breakdown">{breakdown.map(x=><span key={x.id}><i />{x.name}: {formatMoney(netValue(x,points.at(-1)!.date),x.currency)}</span>)}</div></div>
+  return <div className="chart-wrap"><div className="chart-tooltip" role="status" aria-live="polite">{activePoint === null ? 'Focus or hover a point to inspect its estimate' : <><strong>{points[activePoint].date.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}</strong><span>{formatMoney(points[activePoint].value, currency)}</span></>}</div><svg className="chart-svg" viewBox="0 0 940 170" role="img" aria-label={`Estimated portfolio value trend in ${currency}`} preserveAspectRatio="none"><defs><linearGradient id="fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#3159f5" stopOpacity=".2" /><stop offset="100%" stopColor="#3159f5" stopOpacity="0" /></linearGradient></defs>{[38, 82, 126].map(y => <line key={y} x1="35" y1={y} x2="925" y2={y} className="chart-grid" />)}<path d={area} fill="url(#fill)" /><path d={path} fill="none" className="chart-line" />{coords.map((p, i) => <g key={i} className="chart-point" tabIndex={0} role="img" aria-label={`${points[i].date.toLocaleDateString()} estimated value ${formatMoney(points[i].value,currency)}`} onFocus={() => setActivePoint(i)} onBlur={() => setActivePoint(null)} onMouseEnter={() => setActivePoint(i)} onMouseLeave={() => setActivePoint(null)}><circle cx={p.x} cy={p.y} r={i === coords.length - 1 ? 5 : 3.1} className="chart-dot" /><title>{`${points[i].date.toLocaleDateString()} · ${formatMoney(points[i].value,currency)}`}</title></g>)}</svg><div className="chart-labels">{[0, Math.ceil((points.length - 1) / 2), points.length - 1].map(i => <span key={i}>{points[i].date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>)}</div><div className="breakdown-list" aria-label="Projection breakdown">{breakdown.map(x=><span key={x.id}><i />{x.name}: {formatMoney(netValue(x,points.at(-1)!.date)*(kesRate(x.currency,rates)??0),currency)}</span>)}</div></div>
 }
 
 function InvestmentRow({ item, onEdit, onDelete, onEvent, onCloseInvestment, onReconcile }: { item: Investment; onEdit: () => void; onDelete: () => void; onEvent:()=>void; onCloseInvestment:()=>void; onReconcile:(value:number)=>void }) {
@@ -246,7 +256,7 @@ function EmptyState({ onAdd, demo }: { onAdd: () => void; demo: boolean }) {
   return <section className="empty-state panel" id="investments"><div className="empty-art"><span className="empty-art-ring ring-one" /><span className="empty-art-ring ring-two" /><span className="empty-art-icon"><ChartNoAxesCombined size={28} /></span><span className="floating-dot dot-a" /><span className="floating-dot dot-b" /></div><div className="empty-eyebrow">A LITTLE MORE CLARITY</div><h2>Your investments, in one clear view.</h2><p>Add an income-generating investment to see estimated earnings and a simple projection. You can start with just the details you know.</p><button className="button button-primary" onClick={onAdd}><Plus size={17} /> Add your first investment</button><div className="empty-foot"><ShieldCheck size={14} /> {demo ? 'Your data stays in this browser in demo mode.' : 'Your records are private to your signed-in account.'}</div></section>
 }
 
-function InvestmentModal({ initial, existingItems, onClose, onRecordEvent, onSave }: { initial: Investment | null; existingItems:Investment[]; onClose: () => void; onRecordEvent:(item:Investment,kind:'deposit'|'withdrawal'|'rate_change')=>void; onSave: (input: InvestmentInput, id?: string, keepOpen?:boolean) => Promise<void> }) {
+function InvestmentModal({ initial, existingItems, preferences, onClose, onRecordEvent, onSave }: { initial: Investment | null; existingItems:Investment[];preferences:Preferences; onClose: () => void; onRecordEvent:(item:Investment,kind:'deposit'|'withdrawal'|'rate_change')=>void; onSave: (input: InvestmentInput, id?: string, keepOpen?:boolean,exchangeRate?:number) => Promise<void> }) {
   const [form, setForm] = useState<InvestmentInput>(initial ? { provider: initial.provider, name: initial.name, type: initial.type, principal: initial.principal, currency: initial.currency, annualRate: initial.annualRate, startDate: initial.startDate, maturityDate: initial.maturityDate, frequency: initial.frequency, interestMode: initial.interestMode, yieldBasis: initial.yieldBasis, taxRate: initial.taxRate, statementValue: initial.statementValue, couponMonths: initial.couponMonths } : blank)
   const [tab, setTab] = useState<'manual' | 'statement'>('manual')
   const [parseStatus, setParseStatus] = useState('')
@@ -257,6 +267,8 @@ function InvestmentModal({ initial, existingItems, onClose, onRecordEvent, onSav
   const [fileName, setFileName] = useState('')
   const [candidates, setCandidates] = useState<NonNullable<Awaited<ReturnType<typeof parsePdf>>['candidates']>>([])
   const [candidateIndex, setCandidateIndex] = useState(0)
+  const [conversionRates,setConversionRates]=useState<Record<string,number>>({...preferences.rates})
+  const conversionRate=kesRate(form.currency,conversionRates)
   const fileRef = useRef<HTMLInputElement>(null)
   const dialogRef = useRef<HTMLElement>(null)
   useEffect(() => {
@@ -278,8 +290,10 @@ function InvestmentModal({ initial, existingItems, onClose, onRecordEvent, onSav
   const preview:Investment={...form,id:initial?.id??'preview',events:initial?.events??[],status:initial?.status??'active',createdAt:initial?.createdAt??'',principal:Number(form.principal)||0,annualRate:Number(form.annualRate)||0}
   const todayEstimate=estimate(preview,new Date()), yearEstimate=estimate(preview,addMonths(new Date(),12))
   const previewUnknown=hasUnknownTerms(form), previewTax=form.yieldBasis==='gross'?1-form.taxRate/100:1
-  const previewEarned=previewUnknown?`Between ${formatMoney(todayEstimate.low*previewTax,form.currency)} and ${formatMoney(todayEstimate.high*previewTax,form.currency)}`:formatMoney(todayEstimate.interest*previewTax,form.currency)
-  const previewNext=previewUnknown?`Between ${formatMoney(Math.max(0,yearEstimate.low-todayEstimate.low)*previewTax,form.currency)} and ${formatMoney(Math.max(0,yearEstimate.high-todayEstimate.high)*previewTax,form.currency)}`:formatMoney(Math.max(0,yearEstimate.interest-todayEstimate.interest)*previewTax,form.currency)
+  const previewReady=conversionRate!==null&&[todayEstimate.low,todayEstimate.high,yearEstimate.low,yearEstimate.high].every(v=>Number.isFinite(v*conversionRate))
+  const previewFx=conversionRate??0
+  const previewEarned=!previewReady?'Confirm currency and enter a valid KES rate':previewUnknown?`Between ${formatMoney(todayEstimate.low*previewTax*previewFx,'KES')} and ${formatMoney(todayEstimate.high*previewTax*previewFx,'KES')}`:formatMoney(todayEstimate.interest*previewTax*previewFx,'KES')
+  const previewNext=!previewReady?'Confirm currency and enter a valid KES rate':previewUnknown?`Between ${formatMoney(Math.max(0,yearEstimate.low-todayEstimate.low)*previewTax*previewFx,'KES')} and ${formatMoney(Math.max(0,yearEstimate.high-todayEstimate.high)*previewTax*previewFx,'KES')}`:formatMoney(Math.max(0,yearEstimate.interest-todayEstimate.interest)*previewTax*previewFx,'KES')
 
   function useTemplate(value:string) {
     if(value==='treasury')setForm(prev=>({...prev,type:'Bond',name:prev.name||'Treasury bond',frequency:'semiannual',interestMode:'paid_out',couponMonths:[]}))
@@ -298,6 +312,7 @@ function InvestmentModal({ initial, existingItems, onClose, onRecordEvent, onSav
       const list=result.candidates?.length?result.candidates:[result.fields];setCandidates(list);setCandidateIndex(0)
       const fields = list[0]
       setForm(prev => ({ ...prev,
+        currency: fields.currency ?? '',
         provider: fields.provider ?? prev.provider,
         name: fields.name ?? prev.name,
         type: (fields.type as InvestmentType | undefined) ?? prev.type,
@@ -307,7 +322,7 @@ function InvestmentModal({ initial, existingItems, onClose, onRecordEvent, onSav
         maturityDate: fields.maturityDate ?? prev.maturityDate,
         frequency: fields.frequency ? normalizeFrequency(fields.frequency) : prev.frequency,
       }))
-      const count = Object.values(fields).filter(Boolean).length
+      const count = Object.entries(fields).filter(([key,value])=>key!=='currencyStatus'&&Boolean(value)).length
       setStatementLoaded(true)
       setParseStatus(count ? `Found ${list.length} possible investment${list.length===1?'':'s'} and ${count} fields for this one. Review each before saving.` : 'Readable text found, but no familiar fields were identified. Fill in details manually.')
     } catch (e) { setParseStatus(''); setParseError(e instanceof Error ? e.message : 'Could not read this PDF.') }
@@ -315,22 +330,24 @@ function InvestmentModal({ initial, existingItems, onClose, onRecordEvent, onSav
 
   async function submit(event: FormEvent) {
     event.preventDefault(); setAttempted(true)
-    if (!form.provider.trim() || !form.name.trim() || !(form.principal > 0) || form.annualRate < 0 || !form.startDate || (form.maturityDate && form.maturityDate < form.startDate)) return
+    if(!currencyCodes.includes(form.currency)){setParseError('Confirm the investment currency before saving.');return}
+    if(form.currency!=='KES'&&(conversionRate===null||!Number.isFinite(form.principal*conversionRate))){setParseError('Enter a positive, finite conversion rate to KES before saving this investment.');return}
+    if (!form.provider.trim() || !form.name.trim() || !Number.isFinite(form.principal) || !(form.principal > 0) || !Number.isFinite(form.annualRate) || form.annualRate < 0 || !form.startDate || (form.maturityDate && form.maturityDate < form.startDate)) return
     setSaving(true)
     try {
       const keep=tab==='statement'&&!initial&&candidateIndex<candidates.length-1
-      await onSave({ ...form, provider: form.provider.trim(), name: form.name.trim(), maturityDate: form.maturityDate || null }, initial?.id,keep)
-      if(keep){const nextIndex=candidateIndex+1,fields=candidates[nextIndex];setCandidateIndex(nextIndex);setForm(prev=>({...blank,currency:prev.currency,provider:fields.provider??'',name:fields.name??'',type:(fields.type as InvestmentType|undefined)??'Other',principal:fields.principal?Number(fields.principal.replaceAll(',','')):0,annualRate:fields.annualRate?Number(fields.annualRate):0,startDate:fields.startDate??prev.startDate,maturityDate:fields.maturityDate??null,frequency:fields.frequency?normalizeFrequency(fields.frequency):'unknown'}));setParseStatus(`Saved investment ${nextIndex} of ${candidates.length}. Review the next candidate.`)}
+      await onSave({ ...form, provider: form.provider.trim(), name: form.name.trim(), maturityDate: form.maturityDate || null }, initial?.id,keep,conversionRate??undefined)
+      if(keep){const nextIndex=candidateIndex+1,fields=candidates[nextIndex];setCandidateIndex(nextIndex);setForm(prev=>({...blank,currency:fields.currency??'',provider:fields.provider??'',name:fields.name??'',type:(fields.type as InvestmentType|undefined)??'Other',principal:fields.principal?Number(fields.principal.replaceAll(',','')):0,annualRate:fields.annualRate?Number(fields.annualRate):0,startDate:fields.startDate??prev.startDate,maturityDate:fields.maturityDate??null,frequency:fields.frequency?normalizeFrequency(fields.frequency):'unknown'}));setParseError('');setParseStatus(`Saved investment ${nextIndex} of ${candidates.length}. Review the next candidate, its currency and its KES conversion rate.`)}
     }
     catch (e) { setParseError(e instanceof Error ? e.message : 'Could not save investment.') }
     finally { setSaving(false) }
   }
-  const duplicate=existingItems.some(x=>x.name.trim().toLowerCase()===form.name.trim().toLowerCase()&&x.provider.trim().toLowerCase()===form.provider.trim().toLowerCase()&&Math.abs(x.principal-Number(form.principal))<0.01)
+  const duplicate=existingItems.some(x=>x.currency===form.currency&&x.name.trim().toLowerCase()===form.name.trim().toLowerCase()&&x.provider.trim().toLowerCase()===form.provider.trim().toLowerCase()&&Math.abs(x.principal-Number(form.principal))<0.01)
 
   return <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}><section ref={dialogRef} className="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div className="modal-header"><div><div className="section-kicker"><Plus size={14} /> PORTFOLIO DETAILS</div><h2 id="modal-title">{initial ? 'Edit investment' : 'Add an investment'}</h2><p>Enter the details you know. You can update them any time.</p></div><button className="icon-button close-button" onClick={onClose} aria-label="Close dialog"><X size={19} /></button></div>
     {!initial && <div className="modal-tabs" role="tablist" aria-label="Choose how to add an investment"><button role="tab" aria-selected={tab === 'manual'} className={tab === 'manual' ? 'active' : ''} onClick={() => setTab('manual')}><Pencil size={15} /> Enter manually</button><button role="tab" aria-selected={tab === 'statement'} className={tab === 'statement' ? 'active' : ''} onClick={() => setTab('statement')}><FileText size={15} /> From statement <span className="local-tag">LOCAL</span></button></div>}
-    {tab === 'statement' && !initial && <div className="upload-area"><input ref={fileRef} type="file" accept="application/pdf,.pdf" onChange={e => void handleFile(e.target.files?.[0])} hidden /><div className="upload-icon"><Upload size={19} /></div><strong>Extract from a PDF statement</strong><p>Text is read in this browser. The file is not uploaded anywhere. Scanned PDFs need manual entry in this prototype.</p><button type="button" className="button button-quiet" onClick={() => fileRef.current?.click()}><Upload size={15} /> Choose PDF</button>{fileName && <div className="file-name"><FileText size={14} />{fileName}</div>}{parseStatus && <div className="parse-status" role="status"><BadgeCheck size={15} />{parseStatus}</div>}{parseError && <div className="parse-error" role="alert">{parseError}</div>}</div>}
-    <form className="investment-form" onSubmit={e => void submit(e)}>
+    {tab === 'statement' && !initial && <div className="upload-area"><input ref={fileRef} type="file" accept="application/pdf,.pdf" onChange={e => void handleFile(e.target.files?.[0])} hidden /><div className="upload-icon"><Upload size={19} /></div><strong>Extract from a PDF statement</strong><p>Text is read in this browser. The file is not uploaded anywhere. Scanned PDFs need manual entry in this prototype.</p><button type="button" className="button button-quiet" onClick={() => fileRef.current?.click()}><Upload size={15} /> Choose PDF</button>{fileName && <div className="file-name"><FileText size={14} />{fileName}</div>}{parseStatus && <div className="parse-status" role="status"><BadgeCheck size={15} />{parseStatus}</div>}</div>}
+    <form className="investment-form" onSubmit={e => void submit(e)}>{parseError&&<p className="parse-error" role="alert">{parseError}</p>}
       {tab === 'statement' && statementLoaded && <div className="review-banner"><Check size={15} /><span><strong>Review extracted details.</strong> Extraction may be wrong or incomplete. Confirm every value before saving.</span></div>}
       {duplicate&&<div className="duplicate-warning" role="alert"><CircleHelp size={15}/> Possible duplicate: a saved investment has the same provider, name and principal. Confirm before adding.</div>}
       {!initial&&<label className="field template-field"><span>Start from a product template</span><span className="select-wrap"><select defaultValue="" onChange={e=>useTemplate(e.target.value)}><option value="">Choose a template (optional)</option><option value="treasury">Treasury bond · semi-annual coupons</option><option value="fixed">Fixed deposit · at maturity</option><option value="mmf">Money market fund · daily accrual (paid out)</option></select><ChevronDown size={15}/></span></label>}
@@ -341,10 +358,13 @@ function InvestmentModal({ initial, existingItems, onClose, onRecordEvent, onSav
       </div>
       <div className="form-section-title second"><span>02</span> Amount & timing</div>
       <div className="form-grid">{initial?<div className="field"><span>Current principal</span><strong>{formatMoney(estimate(initial,new Date()).principal,initial.currency)}</strong><div className="ledger-actions"><button type="button" className="text-button" onClick={()=>onRecordEvent(initial,'deposit')}>Add top-up</button><button type="button" className="text-button" onClick={()=>onRecordEvent(initial,'withdrawal')}>Add withdrawal</button></div></div>:<label className="field"><span>Principal amount <b>*</b></span><div className="input-with-prefix"><span>{form.currency}</span><input type="number" min="0.01" step="0.01" value={form.principal || ''} onChange={e => put('principal', Number(e.target.value))} placeholder="10,000.00" required /></div>{form.type === 'Bond' && <small>Enter face value for coupon estimates. Purchase-price yield is not modeled.</small>}</label>}
-        <label className="field"><span>Currency <b>*</b></span><span className="select-wrap"><select disabled={!!initial} value={form.currency} onChange={e => put('currency', e.target.value)}>{currencyOptions.map(x => <option key={x}>{x}</option>)}</select><ChevronDown size={15} /></span></label>
+        <label className="field"><span>Currency <b>*</b></span><span className="select-wrap"><select required disabled={!!initial} value={form.currency} onChange={e => put('currency', e.target.value)}><option value="" disabled>Confirm statement currency</option>{currencyOptions.map(x => <option key={x}>{x}</option>)}</select><ChevronDown size={15} /></span></label>
         <label className="field"><span>Investment start date <b>*</b></span><div className="input-with-icon"><CalendarDays size={15} /><input type="date" disabled={!!initial} value={form.startDate} onChange={e => put('startDate', e.target.value)} required /></div><small>Future start dates are saved as Scheduled and excluded from totals.</small></label>
         <label className="field"><span>Maturity date <small>Optional</small></span><div className="input-with-icon"><CalendarDays size={15} /><input type="date" value={form.maturityDate ?? ''} onChange={e => put('maturityDate', e.target.value || null)} min={form.startDate} /></div></label>
       </div>
+
+      {statementLoaded&&tab==='statement'&&<p className="currency-detection" role="status">{candidates[candidateIndex]?.currencyStatus==='detected'?'Statement currency detected: '+candidates[candidateIndex].currency+'. Confirm it against your statement.':'The statement currency is missing or ambiguous. Select the correct currency above; a dollar sign alone does not identify USD.'}</p>}
+      {form.currency&&form.currency!=='KES'&&<div className="investment-fx"><h3>Convert this investment to KES</h3><p>{statementLoaded?'This statement is in '+form.currency+'. ':'This investment is in '+form.currency+'. '}Enter the current rate you want to apply before saving.</p><label className="field"><span>1 {form.currency} = how many KES? <b>*</b></span><div className="input-with-suffix"><input type="number" required min="0.00000001" step="any" value={conversionRates[form.currency]??''} onChange={e=>setConversionRates(prev=>({...prev,[form.currency]:Number(e.target.value)}))} placeholder="Enter conversion rate"/><span>KES</span></div></label><p aria-live="polite">{conversionRate!==null&&Number.isFinite(form.principal*conversionRate)?'Principal in KES: '+formatMoney(form.principal*conversionRate,'KES'):'Enter a valid rate to preview the KES equivalent.'}</p><small>User-set rate, not a live quote. Saving applies it to all {form.currency} holdings, current totals and projections. The original amount stays in {form.currency}.</small></div>}
       <div className="form-section-title second"><span>03</span> Interest & payout terms</div>
       <div className="form-grid">{initial?<div className="field"><span>Current recorded yield</span><strong>{(initial?currentYield(initial):form.annualRate).toFixed(2)}%</strong><button type="button" className="text-button" onClick={()=>onRecordEvent(initial,'rate_change')}>Record rate change</button></div>:<label className="field"><span>Annual interest rate / yield <b>*</b></span><div className="input-with-suffix"><input type="number" min="0" max="1000" step="0.01" value={form.annualRate || ''} onChange={e => put('annualRate', Number(e.target.value))} placeholder="5.25" required /><span>%</span></div></label>}
         <label className="field"><span>Payment / compounding frequency <small>As stated by provider</small><span className="help-line">Look for “coupon frequency”, “distribution”, or “interest credited” on the statement’s product terms.</span></span><span className="select-wrap"><select value={form.frequency} onChange={e => setForm(prev=>({...prev,frequency:e.target.value as Frequency,couponMonths:[]}))}>{Object.entries(frequencyLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select><ChevronDown size={15} /></span><small>Payment dates are estimates: {form.couponMonths.length?`coupon months ${form.couponMonths.join(', ')}, using the start day`:'start-date anniversaries'}. Confirm the provider’s actual schedule. Changing frequency resets coupon months.</small></label>

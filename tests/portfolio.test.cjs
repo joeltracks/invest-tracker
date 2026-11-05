@@ -28,7 +28,8 @@ test('coupon period handles both top-ups and changed yields',()=>{const i={...in
 
 // Render actual source consumers with a fixed clock and isolated fictional holdings.
 const React=require('react'),{renderToStaticMarkup}=require('react-dom/server');
-function dashboard(items,date){
+function dashboard(items,date,rates={USD:130}){
+  prefs.setPreferenceScope('dashboard-render');prefs.savePreferences({baseCurrency:'KES',rates,monthlyGoal:0});
   const NativeDate=global.Date;
   global.Date=class extends NativeDate{constructor(...args){super(...(args.length?args:[date]))}static now(){return new NativeDate(date).getTime()}};
   try{
@@ -46,8 +47,8 @@ function dashboard(items,date){
     return renderToStaticMarkup(React.createElement(exports.default));
   }finally{global.Date=NativeDate}
 }
-test('dashboard chart endpoint and breakdown use actual retained capital',()=>{const i={...inv(),frequency:'annual',events:[{id:'d',kind:'deposit',date:'2026-01-01',amount:500}]};const html=dashboard([i],'2025-07-01T12:00:00');assert.ok(html.includes('class="green-text">$1,500.00</strong>'));assert.ok(html.includes('Fund: $1,500.00'))});
-test('dashboard breakdown applies the same tax adjustment as its chart endpoint',()=>{const i={...inv(),frequency:'annual',interestMode:'compound',taxRate:20};const html=dashboard([i],'2025-01-01T12:00:00');assert.ok(html.includes('class="green-text">$1,080.00</strong>'));assert.ok(html.includes('Fund: $1,080.00'))});
+test('dashboard chart endpoint and breakdown use actual retained capital in KES',()=>{const i={...inv(),frequency:'annual',events:[{id:'d',kind:'deposit',date:'2026-01-01',amount:500}]};const html=dashboard([i],'2025-07-01T12:00:00');assert.ok(html.includes('class="green-text">'+calc.formatMoney(195000,'KES')+'</strong>'));assert.ok(html.includes('Fund: '+calc.formatMoney(195000,'KES')))});
+test('dashboard breakdown applies the same tax and FX adjustments as its chart endpoint',()=>{const i={...inv(),frequency:'annual',interestMode:'compound',taxRate:20};const html=dashboard([i],'2025-01-01T12:00:00');assert.ok(html.includes('class="green-text">'+calc.formatMoney(140400,'KES')+'</strong>'));assert.ok(html.includes('Fund: '+calc.formatMoney(140400,'KES')))});
 test('maturity timeline stays visible throughout its calendar due date',()=>{const html=dashboard([{...inv(),maturityDate:'2025-07-01',frequency:'at_maturity'}],'2025-07-01T18:00:00');assert.ok(html.includes('Maturity'));assert.ok(html.includes('class="event-node event-maturity '))});
 test('combined currency total and goal use manual FX in the declared direction',()=>{
   prefs.setPreferenceScope('calculation-render');prefs.savePreferences({baseCurrency:'KES',rates:{USD:130},monthlyGoal:2000});
@@ -55,5 +56,15 @@ test('combined currency total and goal use manual FX in the declared direction',
   const js=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText;
   new Function('require','exports',js)(p=>p.startsWith('./lib/')?load(p.slice(6)):require(p),exports);
   const NativeDate=global.Date;global.Date=class extends NativeDate{constructor(...args){super(...(args.length?args:['2025-01-01T12:00:00']))}};
-  try{const html=renderToStaticMarkup(React.createElement(exports.PortfolioTools,{items:[inv(),{...inv(),id:'kes',currency:'KES',principal:500}],onImport:()=>{}}));assert.ok(html.includes(calc.formatMoney(130500,'KES')));assert.ok(html.includes(calc.formatMoney(1087.5,'KES')));assert.ok(html.includes('aria-valuenow="54"'))}finally{global.Date=NativeDate;prefs.setPreferenceScope('two')}
+  try{const html=renderToStaticMarkup(React.createElement(exports.PortfolioTools,{items:[inv(),{...inv(),id:'kes',currency:'KES',principal:500}],onImport:()=>{},preferences:prefs.loadPreferences(),onPreferencesChange:()=>{}}));assert.ok(html.includes(calc.formatMoney(130500,'KES')));assert.ok(html.includes(calc.formatMoney(1087.5,'KES')));assert.ok(html.includes('aria-valuenow="54"'))}finally{global.Date=NativeDate;prefs.setPreferenceScope('two')}
 });
+
+const currency=load('currency'),statements=load('statementText');
+test('fresh settings default to KES and legacy goals are not relabelled',()=>{prefs.setPreferenceScope('kes-default');assert.equal(prefs.loadPreferences().baseCurrency,'KES');localStorage.setItem(prefs.preferenceKey(),JSON.stringify({baseCurrency:'USD',monthlyGoal:500,rates:{KES:130,EUR:1.1}}));const migrated=prefs.loadPreferences();assert.equal(migrated.baseCurrency,'KES');assert.equal(migrated.monthlyGoal,0);assert.deepEqual(migrated.rates,{})});
+test('KES quotes use source-to-KES multiplication and reject invalid rates',()=>{assert.equal(currency.toKes(1000,'USD',{USD:130}),130000);assert.equal(currency.toKes(1000,'KES',{}),1000);assert.equal(currency.toKes(1000,'EUR',{USD:130}),null);for(const rate of [0,-1,Infinity,NaN])assert.throws(()=>currency.withKesRate({},'USD',rate),/positive/);assert.equal(currency.toKes(1e300,'USD',{USD:1e300}),null)});
+test('dashboard waits for all FX rates instead of showing partial KES totals',()=>{const html=dashboard([inv(),{...inv(),id:'k',currency:'KES',principal:500}],'2025-01-01T12:00:00',{});assert.ok(html.includes('Set conversion rates'));assert.ok(html.includes('USD to KES conversion rate'));assert.ok(!html.includes('class="chart-svg"'))});
+test('overflowing conversion quotes cannot publish infinite dashboard totals',()=>{const html=dashboard([inv()],'2025-01-01T12:00:00',{USD:1e308});assert.ok(html.includes('values too large to display'));assert.ok(!html.includes('class="chart-svg"'));assert.ok(!html.includes('KES∞'))});
+test('statement parser recognizes KES aliases, ISO codes and explicit symbols',()=>{for(const [text,code] of [['Principal: KShs. 150,000','KES'],['Principal: 150,000 KES','KES'],['Principal: USD 1,000','USD'],['Principal: CHF 1,000','CHF'],['Principal: €1,000','EUR'],['Currency: GBP Principal: 1,000','GBP']]){const field=statements.parseStatementText(text).fields;assert.equal(field.currency,code,text);assert.equal(field.principal,text.includes('150,000')?'150,000':'1,000',text)}});
+test('ambiguous or missing currency stays unselected for review',()=>{assert.equal(statements.detectCurrency('Principal: $1,000').currencyStatus,'ambiguous');assert.equal(statements.detectCurrency('Principal: 1,000').currencyStatus,'missing');const conflict=statements.detectCurrency('Currency: USD Principal: KES 1,000');assert.equal(conflict.currency,undefined);assert.equal(conflict.currencyStatus,'ambiguous')});
+test('multiple statement investments retain their own currencies and amounts',()=>{const parsed=statements.parseStatementText('Provider: Alpha Product name: Dollar Fund Principal: USD 1,000 Yield: 5% Provider: Beta Product name: Local Bond Principal: KES 200,000 Yield: 10%');assert.equal(parsed.candidates.length,2);assert.deepEqual(parsed.candidates.map(i=>i.currency),['USD','KES']);assert.deepEqual(parsed.candidates.map(i=>i.principal),['1,000','200,000'])});
+test('annual rate language does not invent an annual payout frequency',()=>{assert.equal(statements.parseStatementText('Principal: USD 1,000 Annual interest rate: 5% Payment frequency: monthly').fields.frequency,'monthly');assert.equal(statements.parseStatementText('Principal: USD 1,000 Annual interest rate: 5%').fields.frequency,undefined);assert.equal(statements.parseStatementText('Principal: USD 1,000 Payment frequency: annual').fields.frequency,'annual')});

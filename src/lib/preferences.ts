@@ -2,11 +2,15 @@ export interface Preferences { baseCurrency: string; rates: Record<string, numbe
 let scope = 'demo'
 export function setPreferenceScope(value: string) { scope = value }
 export const preferenceKey = () => `yieldwise-preferences-${scope}`
-export const defaultPreferences: Preferences = { baseCurrency: 'USD', rates: {}, monthlyGoal: 0 }
+export const defaultPreferences: Preferences = { baseCurrency: 'KES', rates: {}, monthlyGoal: 0 }
 export function loadPreferences(): Preferences {
   const raw = localStorage.getItem(preferenceKey())
   if (!raw) return { ...defaultPreferences, rates: {} }
-  return validatePreferences(JSON.parse(raw))
+  return forKesReporting(validatePreferences(JSON.parse(raw)))
+}
+/** Never reinterpret old goals or FX quotes as KES amounts. Stored originals remain until settings are saved. */
+export function forKesReporting(value:Preferences):Preferences {
+  return value.baseCurrency==='KES'?{...value,rates:{...value.rates}}:{...defaultPreferences,rates:{}}
 }
 export function validatePreferences(value: unknown): Preferences {
   const x = value as Preferences
