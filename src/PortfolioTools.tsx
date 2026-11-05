@@ -11,7 +11,8 @@ export function PortfolioTools({items,onImport}:{items:Investment[];onImport:(it
   const [prefs,setPrefs]=useState<Preferences>(initial.value),[draft,setDraft]=useState<Preferences>(initial.value),[error,setError]=useState(initial.error),[notice,setNotice]=useState(''),[backup,setBackup]=useState<Backup|null>(null),[importSettings,setImportSettings]=useState(false),[reading,setReading]=useState(false)
   const file=useRef<HTMLInputElement>(null)
   const currencies=[...new Set([...items.map(i=>i.currency),prefs.baseCurrency])].sort()
-  const missing=currencies.filter(c=>c!==prefs.baseCurrency&&!(prefs.rates[c]>0))
+  const neededCurrencies=new Set(items.filter(i=>['Active','Matured'].includes(investmentState(i))).map(i=>i.currency))
+  const missing=[...neededCurrencies].filter(c=>c!==prefs.baseCurrency&&!(prefs.rates[c]>0))
   const convert=(v:number,c:string)=>v*(c===prefs.baseCurrency?1:prefs.rates[c]??0)
   const now=new Date(),year=addMonths(now,12),eligible=items.filter(i=>['Active','Matured'].includes(investmentState(i,now)))
   let value=0,low=0,high=0
