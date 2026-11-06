@@ -2,6 +2,8 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import { setStorageScope } from './lib/localStore'
 import { setPreferenceScope } from './lib/preferences'
 import { closeLocalProfile, createLocalProfile, currentLocalProfile, findLocalProfile, hasBrowserPortfolio, loadProfiles, openLocalProfile, removeLocalProfile, updateLocalProfile, type LocalProfile, type ProfileDetails } from './lib/profiles'
+import { LandingPage } from './LandingPage'
+import { actionLabels, entryScreen, entryUrl, portfolioUrl, readEntryRoute, type PortfolioAction } from './lib/entryRoutes'
 
 interface ProfileContext {
   profile:LocalProfile|null
@@ -10,8 +12,10 @@ interface ProfileContext {
   closeProfile:()=>void
   update:(details:ProfileDetails)=>void
   remove:()=>void
+  pendingAction:PortfolioAction|null
+  completeEntryAction:()=>void
 }
-const Context=createContext<ProfileContext>({profile:null,openExisting:()=>{},startNew:()=>{},closeProfile:()=>{},update:()=>{},remove:()=>{}})
+const Context=createContext<ProfileContext>({profile:null,openExisting:()=>{},startNew:()=>{},closeProfile:()=>{},update:()=>{},remove:()=>{},pendingAction:null,completeEntryAction:()=>{}})
 export const useAccount=()=>useContext(Context)
 const message=(error:unknown)=>error instanceof Error?error.message:String(error)
 
@@ -34,44 +38,81 @@ function useDialog(ref:RefObject<HTMLElement>,onClose:()=>void){
 
 export function AccountProvider({children}:{children:ReactNode}){
   const [boot]=useState(()=>{
-    try{const profiles=loadProfiles();return {profiles,profile:currentLocalProfile(),hasGuest:profiles.length===0&&hasBrowserPortfolio(),error:''}}
-    catch(error){return {profiles:[] as LocalProfile[],profile:null,hasGuest:false,error:message(error)}}
+    try{return {profiles:loadProfiles(),profile:currentLocalProfile(),error:''}}
+    catch(error){return {profiles:[] as LocalProfile[],profile:null,error:message(error)}}
   })
   const [profile,setProfile]=useState<LocalProfile|null>(boot.profile)
   const [profiles,setProfiles]=useState(boot.profiles)
-  const [creating,setCreating]=useState(false)
-  const [dialogOpen,setDialogOpen]=useState(!boot.profile&&boot.profiles.length>0)
-  const closeDialog=useCallback(()=>setDialogOpen(false),[])
+  const [route,setRoute]=useState(()=>readEntryRoute(typeof window==='undefined'?'':window.location.hash))
+  const [pendingAction,setPendingAction]=useState<PortfolioAction|null>(()=>boot.profile&&route.page==='portfolio'&&route.action!=='dashboard'?route.action:null)
+  const loginReturn=useRef('#home')
+  const changeRoute=useCallback((hash:string,replace=false)=>{
+    if(window.location.hash!==hash)window.history[replace?'replaceState':'pushState'](null,'',hash)
+    setRoute(readEntryRoute(hash))
+    if(hash==='#home')window.scrollTo({top:0,left:0,behavior:'instant'})
+  },[])
+  const completeEntryAction=useCallback(()=>setPendingAction(null),[])
+  useEffect(()=>{
+    const sync=()=>setRoute(readEntryRoute(window.location.hash))
+    window.addEventListener('hashchange',sync);window.addEventListener('popstate',sync)
+    return()=>{window.removeEventListener('hashchange',sync);window.removeEventListener('popstate',sync)}
+  },[])
+  const screen=entryScreen(route,Boolean(profile))
+  useEffect(()=>{
+    if(!profile&&route.page==='portfolio'&&route.action!=='dashboard')changeRoute(entryUrl('signup',route.action),true)
+  },[profile,route,changeRoute])
+  useEffect(()=>{
+    if(screen==='signup'){
+      window.scrollTo({top:0,left:0,behavior:'instant'})
+      document.getElementById('create-profile-title')?.focus()
+    }
+  },[screen])
+  const closeDialog=useCallback(()=>changeRoute(loginReturn.current,true),[changeRoute])
+  function requestAccess(action:PortfolioAction){
+    if(profile){setPendingAction(action);changeRoute(portfolioUrl(action))}
+    else changeRoute(entryUrl('signup',action))
+  }
+  function openExisting(){
+    loginReturn.current=window.location.hash||'#home'
+    changeRoute(entryUrl('login',route.action))
+  }
   // Children mount only after their local storage scopes have been selected.
   if(profile){setStorageScope(profile.id);setPreferenceScope(profile.id)}
   function activate(saved:LocalProfile){
     const opened=openLocalProfile(saved.id)
     setStorageScope(opened.id);setPreferenceScope(opened.id)
-    setProfile(opened);setProfiles(loadProfiles());setCreating(false);setDialogOpen(false)
+    setProfile(opened);setProfiles(loadProfiles());setPendingAction(route.action)
+    changeRoute(portfolioUrl(route.action),true)
   }
   const context:ProfileContext={
     profile,
-    openExisting:()=>setDialogOpen(true),
-    startNew:()=>{setDialogOpen(false);setCreating(true)},
-    closeProfile:()=>{closeLocalProfile();setProfile(null);setCreating(false);setDialogOpen(false)},
+    openExisting,
+    startNew:()=>changeRoute(entryUrl('signup','dashboard')),
+    closeProfile:()=>{closeLocalProfile();setProfile(null);setPendingAction(null);changeRoute('#home',true)},
     update:details=>{if(!profile)return;const updated=updateLocalProfile(profile.id,details);setProfile(updated);setProfiles(loadProfiles())},
-    remove:()=>{if(!profile)return;removeLocalProfile(profile.id);setProfile(null);setProfiles(loadProfiles());setCreating(false);setDialogOpen(false)},
+    remove:()=>{if(!profile)return;removeLocalProfile(profile.id);setProfile(null);setProfiles(loadProfiles());setPendingAction(null);changeRoute('#home',true)},
+    pendingAction,
+    completeEntryAction,
   }
-  if(boot.error)return <main className="profile-onboarding"><div className="profile-form-card"><h1>Your profiles need attention</h1><p role="alert">{boot.error}</p><p>Enable browser storage and reload. Existing investment records have not been reset.</p><button className="button button-primary" onClick={()=>location.reload()}>Try again</button></div></main>
+  let canKeepBrowser=false,copyWarning=''
+  if(screen==='signup'&&profiles.length===0&&!boot.error){
+    try{canKeepBrowser=hasBrowserPortfolio()}
+    catch{copyWarning='Previous browser records could not be read. They will be kept; a new profile will start empty.'}
+  }
   return <Context.Provider value={context}>
-    {profile&&!creating?<div key={profile.id}>{children}</div>:<CreateProfilePage canCancel={Boolean(profile)} hasProfiles={profiles.length>0} canKeepBrowser={profiles.length===0&&boot.hasGuest} onCancel={()=>setCreating(false)} onExisting={context.openExisting} onCreate={(details,keep)=>activate(createLocalProfile(details,keep))}/>}
-    {dialogOpen&&<OpenProfileDialog onClose={closeDialog} onOpen={activate} onCreate={context.startNew}/>}
+    {screen==='portfolio'&&profile?<div key={profile.id}>{children}</div>:screen==='signup'?<CreateProfilePage canCancel={Boolean(profile)} hasProfiles={profiles.length>0} canKeepBrowser={canKeepBrowser} action={route.action} storageError={boot.error} copyWarning={copyWarning} onHome={()=>changeRoute('#home')} onCancel={()=>changeRoute('#profile')} onExisting={openExisting} onCreate={(details,keep)=>activate(createLocalProfile(details,keep))}/>:<LandingPage hasProfile={Boolean(profile)} onStart={requestAccess} onLogin={openExisting}/>}
+    {route.page==='login'&&<OpenProfileDialog action={route.action} onClose={closeDialog} onOpen={activate} onCreate={()=>changeRoute(entryUrl('signup',route.action))}/>}
   </Context.Provider>
 }
 
-export function CreateProfilePage({canCancel,hasProfiles,canKeepBrowser,onCancel,onExisting,onCreate}:{canCancel:boolean;hasProfiles:boolean;canKeepBrowser:boolean;onCancel:()=>void;onExisting:()=>void;onCreate:(details:ProfileDetails,keep:boolean)=>void}){
-  const [name,setName]=useState(''),[email,setEmail]=useState(''),[keep,setKeep]=useState(canKeepBrowser),[error,setError]=useState('')
-  function submit(event:FormEvent){event.preventDefault();setError('');try{onCreate({name,email},canKeepBrowser&&keep)}catch(error){setError(message(error))}}
+export function CreateProfilePage({canCancel,hasProfiles,canKeepBrowser,onCancel,onExisting,onCreate,onHome,action='dashboard',storageError='',copyWarning=''}:{canCancel:boolean;hasProfiles:boolean;canKeepBrowser:boolean;onCancel:()=>void;onExisting:()=>void;onCreate:(details:ProfileDetails,keep:boolean)=>void;onHome?:()=>void;action?:PortfolioAction;storageError?:string;copyWarning?:string}){
+  const [name,setName]=useState(''),[email,setEmail]=useState(''),[keep,setKeep]=useState(canKeepBrowser),[error,setError]=useState(storageError)
+  function submit(event:FormEvent){event.preventDefault();setError('');try{if(storageError)throw Error(storageError);onCreate({name,email},canKeepBrowser&&keep)}catch(error){setError(message(error))}}
   return <main className="profile-onboarding">
-    <a className="brand onboarding-brand" href="#profile" aria-label="Yieldwise home"><span className="brand-mark" aria-hidden="true">y</span>yieldwise</a>
+    <div className="onboarding-header"><a className="brand onboarding-brand" href="#home" onClick={onHome?event=>{event.preventDefault();onHome()}:undefined} aria-label="Yieldwise home"><span className="brand-mark" aria-hidden="true">y</span>yieldwise</a><a href="#home" onClick={onHome?event=>{event.preventDefault();onHome()}:undefined}>← Back to website</a></div>
     <div className="profile-welcome-grid">
       <section className="profile-welcome-copy"><span className="section-kicker">YOUR PORTFOLIO, YOUR SPACE</span><h1>Start with a profile.<br/>Build from here.</h1><p>Give your investments a home on this device. Track your capital, record its changes and see your estimated income in Kenyan shillings.</p><div className="profile-step"><span>01</span><div><strong>Create your profile</strong><p>Your name and email identify your workspace.</p></div></div><div className="profile-step"><span>02</span><div><strong>Add your investments</strong><p>Bring together MMFs, bonds and other income investments.</p></div></div><div className="profile-step"><span>03</span><div><strong>Follow the changes</strong><p>Keep a dated ledger and work toward your income goal.</p></div></div><p className="profile-device-note">Local prototype · no cloud sync · no password protection</p></section>
-      <section className="profile-form-card" aria-labelledby="create-profile-title"><div className="profile-card-kicker">WELCOME TO YIELDWISE</div><h2 id="create-profile-title">Create a new profile</h2><p>These details are saved only in this browser. Your email is an identifier; no email will be sent.</p>
+      <section className="profile-form-card" aria-labelledby="create-profile-title"><div className="profile-card-kicker">WELCOME TO YIELDWISE</div><h2 id="create-profile-title" tabIndex={-1}>Create a new profile</h2><p className="entry-intent">Sign up to {actionLabels[action]}.</p><p>These details are saved only in this browser. Your email is an identifier; no email will be sent.</p>{copyWarning&&<p role="status">{copyWarning}</p>}
         <form onSubmit={submit}><label className="field">Full name<input autoComplete="name" minLength={2} maxLength={80} required value={name} onChange={e=>setName(e.target.value)} placeholder="Your name"/></label><label className="field">Email address<input type="email" autoComplete="email" maxLength={254} required value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com"/></label>
           {canKeepBrowser&&<label className="profile-checkbox"><input type="checkbox" checked={keep} onChange={e=>setKeep(e.target.checked)}/><span>Keep my existing browser investments and KES settings in this profile. The originals will also remain in browser storage.</span></label>}
           {error&&<p className="validation-error" role="alert">{error}</p>}<button className="button button-primary profile-submit" type="submit">Sign up <span aria-hidden="true">→</span></button>
@@ -82,12 +123,12 @@ export function CreateProfilePage({canCancel,hasProfiles,canKeepBrowser,onCancel
   </main>
 }
 
-export function OpenProfileDialog({onClose,onOpen,onCreate}:{onClose:()=>void;onOpen:(profile:LocalProfile)=>void;onCreate:()=>void}){
+export function OpenProfileDialog({onClose,onOpen,onCreate,action='dashboard'}:{onClose:()=>void;onOpen:(profile:LocalProfile)=>void;onCreate:()=>void;action?:PortfolioAction}){
   const ref=useRef<HTMLElement>(null)
   useDialog(ref,onClose)
   const [name,setName]=useState(''),[email,setEmail]=useState(''),[error,setError]=useState('')
   function submit(event:FormEvent){event.preventDefault();setError('');try{onOpen(findLocalProfile({name,email}))}catch(error){setError(message(error))}}
-  return <div className="modal-backdrop" onMouseDown={event=>{if(event.target===event.currentTarget)onClose()}}><section ref={ref} className="profile-dialog" role="dialog" aria-modal="true" aria-labelledby="open-profile-title" aria-describedby="open-profile-note"><div className="profile-dialog-header"><span className="section-kicker">WELCOME BACK</span><button className="icon-button" onClick={onClose} aria-label="Close profile popup">×</button></div><h2 id="open-profile-title">Open your profile</h2><p id="open-profile-note">Enter the name and email you used on this device. This selects a local workspace; it is not a secure sign-in.</p><form onSubmit={submit}><label className="field">Full name<input autoComplete="name" required minLength={2} maxLength={80} value={name} onChange={e=>setName(e.target.value)}/></label><label className="field">Email address<input autoComplete="email" type="email" required maxLength={254} value={email} onChange={e=>setEmail(e.target.value)}/></label>{error&&<p role="alert" className="validation-error">{error}</p>}<button className="button button-primary profile-submit">Open profile <span aria-hidden="true">→</span></button></form><div className="profile-form-footer"><button className="text-button" onClick={onCreate}>Create a new profile instead</button><button className="text-button" onClick={onClose}>Cancel</button></div></section></div>
+  return <div className="modal-backdrop" onMouseDown={event=>{if(event.target===event.currentTarget)onClose()}}><section ref={ref} className="profile-dialog" role="dialog" aria-modal="true" aria-labelledby="open-profile-title" aria-describedby="open-profile-note"><div className="profile-dialog-header"><span className="section-kicker">WELCOME BACK</span><button className="icon-button" onClick={onClose} aria-label="Close profile popup">×</button></div><h2 id="open-profile-title">Log in to your profile</h2><p className="entry-intent">Continue to {actionLabels[action]}.</p><p id="open-profile-note">Enter the name and email you used on this device. This selects a local workspace; it is not a secure sign-in.</p><form onSubmit={submit}><label className="field">Full name<input autoComplete="name" required minLength={2} maxLength={80} value={name} onChange={e=>setName(e.target.value)}/></label><label className="field">Email address<input autoComplete="email" type="email" required maxLength={254} value={email} onChange={e=>setEmail(e.target.value)}/></label>{error&&<p role="alert" className="validation-error">{error}</p>}<button className="button button-primary profile-submit">Log in <span aria-hidden="true">→</span></button></form><div className="profile-form-footer"><button className="text-button" onClick={onCreate}>Sign up instead</button><button className="text-button" onClick={onClose}>Cancel</button></div></section></div>
 }
 
 export function ProfilePage({onBackup}:{onBackup:()=>void}){

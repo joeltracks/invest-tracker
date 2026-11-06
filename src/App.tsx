@@ -24,7 +24,7 @@ export function buildInvestmentCsv(items:Investment[],asOf=new Date()):string {
 }
 
 function App() {
-  const { profile, openExisting } = useAccount()
+  const { profile, openExisting, pendingAction, completeEntryAction } = useAccount()
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false)
   const [activeSection, setActiveSection] = useState(()=>typeof window!=='undefined'&&window.location.hash==='#profile'?'profile':'dashboard')
   const navigationToggle = useRef<HTMLButtonElement>(null)
@@ -61,6 +61,7 @@ function App() {
   useEffect(()=>{if(!projectionRef.current||matchMedia("(prefers-reduced-motion: reduce)").matches)return;const observer=new IntersectionObserver(entries=>{if(entries.some(e=>e.isIntersecting)){projectionRef.current?.classList.add("projection-reveal");observer.disconnect()}},{threshold:0.3});observer.observe(projectionRef.current);return()=>observer.disconnect()},[busy,items.length])
   const [error, setError] = useState('')
   const [modal, setModal] = useState(false)
+  const [initialInvestmentTab,setInitialInvestmentTab]=useState<'manual'|'statement'>('manual')
   const [editing, setEditing] = useState<Investment | null>(null)
   const [months, setMonths] = useState(12)
   const currency = 'KES'
@@ -80,6 +81,18 @@ function App() {
   }, [])
 
   useEffect(() => { refresh() }, [refresh])
+
+  useEffect(()=>{
+    if(busy||!pendingAction)return
+    if(pendingAction==='add-investment'||pendingAction==='import-statement'){
+      setEditing(null)
+      setInitialInvestmentTab(pendingAction==='import-statement'?'statement':'manual')
+      setModal(true)
+    }else if(pendingAction==='income-goal')navigateTo('portfolio-settings')
+    else if(pendingAction==='investments')navigateTo('investments')
+    else if(pendingAction==='profile')navigateTo('profile')
+    completeEntryAction()
+  },[busy,pendingAction,completeEntryAction])
 
   const visible = items
   const now = new Date()
@@ -154,8 +167,8 @@ function App() {
   }
   function announce(message: string) { setToast(message); window.setTimeout(() => setToast(''), 2800) }
   function openMethodology() { const details=document.querySelector<HTMLDetailsElement>('#formula-details details'); if(details)details.open=true; document.getElementById('formula-details')?.scrollIntoView({behavior:'smooth'}) }
-  function openAdd() { setEditing(null); setModal(true) }
-  function openEdit(item: Investment) { setEditing(item); setModal(true) }
+  function openAdd() { setEditing(null); setInitialInvestmentTab('manual'); setModal(true) }
+  function openEdit(item: Investment) { setEditing(item); setInitialInvestmentTab('manual'); setModal(true) }
   function recordEvent(item: Investment, kind?:'deposit'|'withdrawal'|'rate_change') { setEventFor(item);setEventKind(kind) }
   function undoDelete() { if(undoItem){setItems(restoreInvestment(undoItem));setUndoItem(null);setToast('Investment restored');window.setTimeout(()=>setToast(''),2500)} }
   function exportCsv() {
@@ -231,7 +244,7 @@ function App() {
       </>}
       <footer className="footer"><span>© 2026 Yieldwise prototype</span><span>Simple by design <span className="footer-dot">·</span> Private by default</span></footer>
     </main>
-    {modal && <InvestmentModal key={editing?.id ?? 'new'} initial={editing} existingItems={items} preferences={preferences} onClose={() => { setModal(false); setEditing(null) }} onRecordEvent={(item,kind)=>{setModal(false);recordEvent(item,kind)}} onSave={save} />}
+    {modal && <InvestmentModal key={editing?.id ?? 'new'} initial={editing} initialTab={initialInvestmentTab} existingItems={items} preferences={preferences} onClose={() => { setModal(false); setEditing(null) }} onRecordEvent={(item,kind)=>{setModal(false);recordEvent(item,kind)}} onSave={save} />}
     {eventFor && <EventModal key={`${eventFor.id}-${eventKind??'any'}`} item={eventFor} initialKind={eventKind} onClose={()=>{setEventFor(null);setEventKind(undefined)}} onSave={(event)=>{const updated=appendEvent(eventFor.id,event);setItems(updated);setEventFor(null);setEventKind(undefined);announce('Ledger event recorded')}} />}
     {toast && <div className="toast" role="status"><Check size={16} />{toast}{undoItem&&<button onClick={undoDelete}>Undo</button>}</div>}
   </div>
@@ -268,9 +281,9 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
   return <section className="empty-state panel" id="investments"><div className="empty-art"><span className="empty-art-ring ring-one" /><span className="empty-art-ring ring-two" /><span className="empty-art-icon"><ChartNoAxesCombined size={28} /></span><span className="floating-dot dot-a" /><span className="floating-dot dot-b" /></div><div className="empty-eyebrow">A LITTLE MORE CLARITY</div><h2>Your investments, in one clear view.</h2><p>Add an income-generating investment to see estimated earnings and a simple projection. You can start with just the details you know.</p><button className="button button-primary" onClick={onAdd}><Plus size={17} /> Add your first investment</button><div className="empty-foot"><ShieldCheck size={14} /> Your records stay in this local profile on this browser.</div></section>
 }
 
-function InvestmentModal({ initial, existingItems, preferences, onClose, onRecordEvent, onSave }: { initial: Investment | null; existingItems:Investment[];preferences:Preferences; onClose: () => void; onRecordEvent:(item:Investment,kind:'deposit'|'withdrawal'|'rate_change')=>void; onSave: (input: InvestmentInput, id?: string, keepOpen?:boolean,exchangeRate?:number) => Promise<void> }) {
+function InvestmentModal({ initial, initialTab='manual', existingItems, preferences, onClose, onRecordEvent, onSave }: { initial: Investment | null; initialTab?:'manual'|'statement';existingItems:Investment[];preferences:Preferences; onClose: () => void; onRecordEvent:(item:Investment,kind:'deposit'|'withdrawal'|'rate_change')=>void; onSave: (input: InvestmentInput, id?: string, keepOpen?:boolean,exchangeRate?:number) => Promise<void> }) {
   const [form, setForm] = useState<InvestmentInput>(initial ? { provider: initial.provider, name: initial.name, type: initial.type, principal: initial.principal, currency: initial.currency, annualRate: initial.annualRate, startDate: initial.startDate, maturityDate: initial.maturityDate, frequency: initial.frequency, interestMode: initial.interestMode, yieldBasis: initial.yieldBasis, taxRate: initial.taxRate, statementValue: initial.statementValue, couponMonths: initial.couponMonths } : blank)
-  const [tab, setTab] = useState<'manual' | 'statement'>('manual')
+  const [tab, setTab] = useState<'manual' | 'statement'>(initialTab)
   const [parseStatus, setParseStatus] = useState('')
   const [parseError, setParseError] = useState('')
   const [saving, setSaving] = useState(false)

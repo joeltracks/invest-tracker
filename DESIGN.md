@@ -62,7 +62,10 @@ A market field instrument: a clear, active interface for reading time, cash flow
 - Active navigation uses the cobalt surface treatment with a visible location indicator. Honor reduced motion when scrolling between sections.
 
 ## Local profiles
-- New visitors see a dedicated profile-creation page. Returning visitors without an active tab session get a name/email popup.
+- Visitors without an active profile first see a public, scrollable landing page. Product explanations, estimate assumptions and privacy notes remain accessible without opening a profile.
+- Functional calls to action lead to a dedicated Sign up page, with Log in available for an existing local profile. Open the name/email popup only when requested; never interrupt browsing with it automatically.
+- Preserve the requested tool through sign up, log in, switching between them, and reloading their URLs. Resume it after selecting the profile and its storage scopes. Provide a Back to website link; browser Back must continue to work.
+- Use the public page's editorial hero, capital-event diagram and feature rows without fabricated balances or sample investments. Reuse the approved typography and color tokens. Personal portfolio tools mount only after local profile entry.
 - Profile is a full page in the sidebar, not a section below the overview. Preserve keyboard focus on navigation and restore it after popup cancellation.
 - State that profiles are stored only in this browser and are not password protected. Do not present local profile selection as authentication or expose developer setup notices in the product.
 - Use the existing light surfaces, serif headings, cobalt actions and green/citrus initials. Keep forms to name and email while the backend is deferred.

@@ -95,8 +95,88 @@ test('first profile can copy existing browser data while later profiles start em
 test('profile edits keep identity and portfolio data and reject another profile email',()=>{resetProfiles();const first=profiles.createLocalProfile(ada),second=profiles.createLocalProfile(ben);store.setStorageScope(first.id);store.replaceInvestments([{...inv(),events:capitalEvents}]);const updated=profiles.updateLocalProfile(first.id,{name:'Ada Updated',email:'updated@example.test'});assert.equal(updated.id,first.id);assert.equal(profiles.findLocalProfile({name:'Ada Updated',email:'updated@example.test'}).id,first.id);assert.equal(store.loadInvestments()[0].events.length,2);assert.throws(()=>profiles.updateLocalProfile(first.id,{name:'Ada Updated',email:second.email}),/already uses/)});
 test('removing a local profile clears only its own workspace',()=>{resetProfiles();const first=profiles.createLocalProfile(ada),second=profiles.createLocalProfile(ben);localStorage.setItem('yieldwise-investments-'+first.id,JSON.stringify([inv()]));localStorage.setItem('yieldwise-preferences-'+first.id,JSON.stringify({baseCurrency:'KES',rates:{},monthlyGoal:10}));localStorage.setItem('yieldwise-investments-'+second.id,JSON.stringify([{...inv(),principal:2000}]));const guest=localStorage.getItem('yieldwise-demo-investments-v1');profiles.openLocalProfile(first.id);profiles.removeLocalProfile(first.id);assert.equal(profiles.currentLocalProfile(),null);assert.equal(localStorage.getItem('yieldwise-investments-'+first.id),null);assert.equal(localStorage.getItem('yieldwise-preferences-'+first.id),null);assert.equal(JSON.parse(localStorage.getItem('yieldwise-investments-'+second.id))[0].principal,2000);assert.equal(localStorage.getItem('yieldwise-demo-investments-v1'),guest);assert.deepEqual(profiles.loadProfiles().map(p=>p.id),[second.id])});
 test('failed profile creation leaves existing records intact and no orphan workspace',()=>{resetProfiles();const priorKeys=[...data.keys()],write=localStorage.setItem;localStorage.setItem=(key,value)=>{if(key===profiles.profilesKey)throw Error('quota');write(key,value)};try{assert.throws(()=>profiles.createLocalProfile(ada,true),/could not be saved/);assert.deepEqual([...data.keys()].sort(),priorKeys.sort());assert.deepEqual(profiles.loadProfiles(),[])}finally{localStorage.setItem=write}});
-function profileUi(){const exports={},source=fs.readFileSync('src/Account.tsx','utf8');const js=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText;new Function('require','exports',js)(p=>p.startsWith('./lib/')?load(p.slice(6)):require(p),exports);return exports}
-test('new users see profile creation and returning users without a session get the popup',()=>{resetProfiles();let html=renderToStaticMarkup(React.createElement(profileUi().AccountProvider,null,React.createElement('p',null,'Portfolio content')));assert.ok(html.includes('Create a new profile'));assert.ok(!html.includes('Portfolio content'));assert.ok(!html.includes('Magic link'));assert.ok(!html.includes('VITE_SUPABASE'));profiles.createLocalProfile(ada);html=renderToStaticMarkup(React.createElement(profileUi().AccountProvider,null,React.createElement('p',null,'Portfolio content')));assert.ok(html.includes('role="dialog"'));assert.ok(html.includes('Open your profile'));assert.ok(html.includes('not a secure sign-in'));assert.ok(!html.includes('Portfolio content'))});
+function profileUi(react=React){
+  const modules={};
+  function component(name){
+    if(modules[name])return modules[name];
+    const exports={};modules[name]=exports;
+    const source=fs.readFileSync(`src/${name}.tsx`,'utf8');
+    const js=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText;
+    new Function('require','exports',js)(p=>p==='react'?react:p==='./LandingPage'?component('LandingPage'):p.startsWith('./lib/')?load(p.slice(6)):require(p),exports);
+    return exports;
+  }
+  return component('Account');
+}
+test('new and returning visitors can browse publicly without opening a profile or mounting portfolio tools',()=>{
+  resetProfiles();let mounted=0;function PrivateTools(){mounted++;return React.createElement('p',null,'Private portfolio');}
+  function render(){return renderToStaticMarkup(React.createElement(profileUi().AccountProvider,null,React.createElement(PrivateTools)));}
+  let html=render();assert.ok(html.includes('Take a look around'));assert.ok(html.includes('Our estimates'));assert.ok(!html.includes('Create a new profile'));assert.ok(!html.includes('role="dialog"'));assert.equal(mounted,0);
+  profiles.createLocalProfile(ada);const before=JSON.stringify([...data]);html=render();assert.ok(html.includes('Add investment'));assert.ok(!html.includes('role="dialog"'));assert.equal(mounted,0);assert.equal(JSON.stringify([...data]),before);assert.ok(!html.includes('Magic link'));assert.ok(!html.includes('VITE_SUPABASE'));
+});
 test('opening profiles selects their matching portfolio and KES settings before rendering',()=>{resetProfiles();const first=profiles.createLocalProfile(ada),second=profiles.createLocalProfile(ben);localStorage.setItem('yieldwise-investments-'+first.id,JSON.stringify([{...inv(),principal:1500}]));localStorage.setItem('yieldwise-investments-'+second.id,JSON.stringify([{...inv(),principal:2500}]));function Probe(){return React.createElement('p',null,'Capital '+store.loadInvestments()[0].principal)}profiles.openLocalProfile(first.id);let html=renderToStaticMarkup(React.createElement(profileUi().AccountProvider,null,React.createElement(Probe)));assert.ok(html.includes('Capital 1500'));profiles.openLocalProfile(second.id);html=renderToStaticMarkup(React.createElement(profileUi().AccountProvider,null,React.createElement(Probe)));assert.ok(html.includes('Capital 2500'));profiles.closeLocalProfile();store.setStorageScope('other');prefs.setPreferenceScope('two')});
 test('first-profile copy does not bring back removed legacy samples',()=>{resetProfiles();const sample={...inv(),id:'demo-mmf',provider:'Cedar Capital',name:'Cedar Money Market Fund',annualRate:5.2,principal:15000,startDate:'2024-08-01',frequency:'unknown',interestMode:'unknown'},real={...inv(),id:'actual-entry'};localStorage.setItem('yieldwise-demo-investments-v1',JSON.stringify([sample,real]));const profile=profiles.createLocalProfile(ada,true);assert.deepEqual(JSON.parse(localStorage.getItem('yieldwise-investments-'+profile.id)),[real]);assert.equal(JSON.parse(localStorage.getItem('yieldwise-demo-investments-v1')).length,2)});
 test('corrupt legacy browser data cannot block an existing local profile',()=>{resetProfiles();const profile=profiles.createLocalProfile(ada);profiles.openLocalProfile(profile.id);const guest=localStorage.getItem('yieldwise-demo-investments-v1');localStorage.setItem('yieldwise-demo-investments-v1','invalid json');try{const html=renderToStaticMarkup(React.createElement(profileUi().AccountProvider,null,React.createElement('p',null,'Existing workspace opens')));assert.ok(html.includes('Existing workspace opens'));assert.ok(!html.includes('profiles need attention'))}finally{if(guest===null)localStorage.removeItem('yieldwise-demo-investments-v1');else localStorage.setItem('yieldwise-demo-investments-v1',guest);profiles.closeLocalProfile();store.setStorageScope('other');prefs.setPreferenceScope('two')}});
+
+const entry=load('entryRoutes');
+test('entry routes protect private deep links and accept only known return actions',()=>{
+  for(const action of entry.portfolioActions){
+    const route=entry.readEntryRoute(entry.entryUrl('signup',action));
+    assert.equal(route.action,action);assert.equal(entry.entryScreen(route,false),'signup');
+    assert.equal(entry.readEntryRoute(entry.entryUrl('login',action)).action,action);
+  }
+  assert.equal(entry.entryScreen(entry.readEntryRoute('#profile'),false),'signup');
+  assert.equal(entry.entryScreen(entry.readEntryRoute('#portfolio-settings'),false),'signup');
+  assert.equal(entry.entryScreen(entry.readEntryRoute('#dashboard'),false),'landing');
+  assert.equal(entry.entryScreen(entry.readEntryRoute('#features'),true),'landing');
+  assert.equal(entry.entryScreen(entry.readEntryRoute('#public-content'),true),'landing');
+  assert.equal(entry.entryScreen(entry.readEntryRoute('#dashboard'),true),'portfolio');
+  for(const next of ['https://example.test','//example.test','javascript:alert(1)','not-an-action'])assert.equal(entry.readEntryRoute('#signup?next='+encodeURIComponent(next)).action,'dashboard');
+});
+
+/** Exercise the provider's real event handlers with in-memory React state/history. */
+function entryHarness(hash=''){
+  const previousWindow=global.window,states=[],refs=[];let stateCursor=0,refCursor=0;
+  global.window={location:{hash},scrollTo(){},history:{pushState(_state,_title,url){window.location.hash=url},replaceState(_state,_title,url){window.location.hash=url}}};
+  const react={...React,useEffect:()=>{},useCallback:fn=>fn,useRef:initial=>{const index=refCursor++;return refs[index]??(refs[index]={current:initial})},useState:initial=>{
+    const index=stateCursor++;if(!(index in states))states[index]=typeof initial==='function'?initial():initial;
+    return [states[index],value=>{states[index]=typeof value==='function'?value(states[index]):value}];
+  }};
+  const {AccountProvider}=profileUi(react);
+  return {render(){stateCursor=0;refCursor=0;return AccountProvider({children:React.createElement('p',null,'Private portfolio')})},restore(){if(previousWindow===undefined)delete global.window;else global.window=previousWindow;profiles.closeLocalProfile();store.setStorageScope('other');prefs.setPreferenceScope('two')}};
+}
+
+test('Add investment continues through sign up, sets profile scopes and resumes the selected action',()=>{
+  resetProfiles();const harness=entryHarness();
+  try{
+    let tree=harness.render();tree.props.children[0].props.onStart('add-investment');
+    tree=harness.render();assert.match(window.location.hash,/#signup\?next=add-investment/);assert.equal(tree.props.children[0].props.action,'add-investment');
+    tree.props.children[0].props.onCreate(ada,false);tree=harness.render();
+    assert.equal(tree.props.value.profile.email,ada.email);assert.equal(tree.props.value.pendingAction,'add-investment');assert.equal(window.location.hash,'#dashboard');
+    assert.equal(tree.props.children[0].props.children.props.children,'Private portfolio');
+    assert.deepEqual(store.loadInvestments(),[]);assert.equal(prefs.loadPreferences().baseCurrency,'KES');
+    tree.props.value.completeEntryAction();assert.equal(harness.render().props.value.pendingAction,null);
+    tree.props.value.closeProfile();tree=harness.render();assert.equal(window.location.hash,'#home');assert.equal(tree.props.value.profile,null);assert.ok(tree.props.children[0].props.onStart);
+  }finally{harness.restore()}
+});
+
+test('Login cancellation and signup/login switching preserve the requested tool and existing records',()=>{
+  resetProfiles();const saved=profiles.createLocalProfile(ada);localStorage.setItem('yieldwise-investments-'+saved.id,JSON.stringify([{...inv(),principal:4321}]));
+  const harness=entryHarness('#signup?next=import-statement');
+  try{
+    let tree=harness.render();tree.props.children[0].props.onExisting();tree=harness.render();
+    assert.equal(window.location.hash,'#login?next=import-statement');assert.equal(tree.props.children[1].props.action,'import-statement');assert.equal(tree.props.value.profile,null);
+    tree.props.children[1].props.onClose();tree=harness.render();assert.equal(window.location.hash,'#signup?next=import-statement');assert.equal(tree.props.children[0].props.action,'import-statement');
+    tree.props.children[0].props.onExisting();tree=harness.render();tree.props.children[1].props.onCreate();tree=harness.render();assert.equal(tree.props.children[0].props.action,'import-statement');
+    tree.props.children[0].props.onExisting();tree=harness.render();tree.props.children[1].props.onOpen(profiles.findLocalProfile(ada));tree=harness.render();
+    assert.equal(tree.props.value.pendingAction,'import-statement');assert.equal(store.loadInvestments()[0].principal,4321);assert.equal(tree.props.value.profile.id,saved.id);
+  }finally{harness.restore()}
+});
+
+test('Reloaded auth routes retain their tool and do not expose private content before login',()=>{
+  resetProfiles();profiles.createLocalProfile(ada);
+  const harness=entryHarness('#login?next=income-goal');
+  try{
+    const tree=harness.render(),html=renderToStaticMarkup(tree);
+    assert.ok(html.includes('Log in to your profile'));assert.ok(html.includes('set an income goal'));assert.ok(!html.includes('Private portfolio'));assert.ok(html.includes('not a secure sign-in'));
+  }finally{harness.restore()}
+});

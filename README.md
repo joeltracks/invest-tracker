@@ -47,12 +47,14 @@ Run npm install, npm run dev, npm test, npm run typecheck and npm run build (out
 
 ## Profile flow
 
-- New users see a separate creation page with name and email. Both fields are validated; duplicate email addresses on this device are rejected.
-- Returning users without an active tab session get a popup asking for their saved name and email. This selects a local workspace; no email is sent and no password is stored.
+- Visitors first land on a public page with scrollable product information, estimate assumptions and privacy notes. Returning users without an active tab session can browse it too; no login popup opens automatically.
+- Functional actions (Add investment, Import statement, Set income goal and Manage investments) lead to Sign up. The page offers Log in for an existing profile and Back to website. Name and email are validated; duplicate email addresses on this device are rejected.
+- Log in opens a popup asking for the saved name and email. This selects a local workspace; no email is sent and no password is stored. The requested action survives switching between sign up and log in or reloading either URL, then opens after entry (including the PDF statement tab or income goal settings).
 - Profile appears in the sidebar as a separate page with editable details, backup navigation, profile switching and explicit confirmation before local removal. It replaces the old Account & security section on Overview. No magic-link option is present.
 - One profile ID scopes the holdings and KES preference keys. Switching selects both scopes before the dashboard mounts. Changing name/email preserves the same ID, investments and event history.
 - The first profile can opt to copy investments and settings already entered in the browser. The original local workspace is retained. Additional profiles begin empty.
-- Profile metadata is stored in localStorage; the selected profile ID is kept in sessionStorage for the current tab. Reloading an open tab resumes it; a new session prompts for details again. Closing a profile returns to the creation/open screen.
+- Profile metadata is stored in localStorage; the selected profile ID is kept in sessionStorage for the current tab. Reloading an open portfolio tab resumes it; a new session returns to the public page until the user chooses to enter. Closing a profile returns to the public page.
+- Entry URLs use hash routes (for example, `#signup?next=add-investment` and `#login?next=income-goal`), so Vercel needs no extra rewrite. Return actions are restricted to a fixed list; arbitrary redirect URLs are ignored. Personal portfolio components and their data-loading effects are not mounted for visitors. This is a frontend flow gate, not server-side authentication.
 - Local profiles are not secure accounts. Anyone using the browser can open them; data is unencrypted and does not sync across devices. JSON export/import backs up investments, ledger, goals and rates, not profile identity or authentication. Use a private browser and keep financial backups private.
 - Removing a profile clears only that profile's records and settings in this browser. Other profiles, the preserved original workspace and downloaded backups remain.
 
