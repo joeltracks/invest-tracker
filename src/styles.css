@@ -1124,16 +1124,19 @@ a {
 .investment-identity div {
   display: grid;
   gap: var(--space-2);
+  min-width: 0;
 }
 
 .investment-identity strong {
   color: var(--ink);
   font: var(--weight-semibold) var(--text-xs) var(--font-body);
+  overflow-wrap: anywhere;
 }
 
 .investment-identity span:not(.investment-icon) {
   color: var(--muted);
   font: var(--text-xs) var(--font-body);
+  overflow-wrap: anywhere;
 }
 
 .investment-identity i {
@@ -1220,6 +1223,29 @@ a {
   padding: var(--space-12) 0;
   color: var(--muted);
   font-size: var(--text-xs);
+}
+
+.investment-table th:first-child,.investment-table td:first-child {
+  position: sticky;
+  inset-inline-start: 0;
+  z-index: var(--layer-local);
+  min-width: 12rem;
+  width: 12rem;
+  background: var(--surface);
+  border-inline-end: var(--stroke) solid var(--line);
+}
+
+.investment-table tbody tr:hover td:first-child {
+  background: var(--surface-muted);
+}
+
+.table-scroll-hint {
+  display: none;
+  margin: 0;
+  padding: var(--space-8) 0;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  line-height: var(--leading-body);
 }
 
 .table-foot a {
@@ -1740,6 +1766,23 @@ a {
   color: var(--ink);
   font-size: var(--text-xs);
   font-weight: var(--weight-semibold);
+}
+
+.interest-treatment {
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
+}
+
+.interest-treatment legend {
+  padding: 0;
+  margin-bottom: var(--space-6);
+  font: inherit;
+}
+
+.investment-entry-panel {
+  min-width: 0;
 }
 
 .field>span:first-child {
@@ -4147,4 +4190,19 @@ a {
 
 .sidebar-status .status-dot {
   background: var(--lime);
+}
+
+@media (max-width:760px) {
+  .table-scroll-hint {
+    display: block;
+  }
+  .investment-table th:first-child,.investment-table td:first-child {
+    min-width: 9rem;
+    width: 9rem;
+    max-width: 9rem;
+  }
+  .investment-identity {
+    min-width: 0;
+    align-items: flex-start;
+  }
 }

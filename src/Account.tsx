@@ -59,6 +59,13 @@ export function AccountProvider({children}:{children:ReactNode}){
   },[])
   const screen=entryScreen(route,Boolean(profile))
   useEffect(()=>{
+    if(screen!=='landing')return
+    const section=window.location.hash.slice(1).split('?')[0]
+    if(!section)return
+    const frame=requestAnimationFrame(()=>document.getElementById(section)?.scrollIntoView({behavior:'instant',block:'start'}))
+    return()=>cancelAnimationFrame(frame)
+  },[screen])
+  useEffect(()=>{
     if(!profile&&route.page==='portfolio'&&route.action!=='dashboard')changeRoute(entryUrl('signup',route.action),true)
   },[profile,route,changeRoute])
   useEffect(()=>{

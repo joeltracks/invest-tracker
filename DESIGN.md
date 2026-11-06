@@ -67,6 +67,9 @@ A Financial Dashboard: a restrained navy navigation rail, a cool light canvas, b
 - Use a persistent left sidebar on desktop for Overview, Investments and How estimates work. Provide Profile as a dedicated sidebar destination and keep Switch profile and local storage status at the bottom.
 - On screens at or below 760px, use a compact brand header with a Menu disclosure. Expanded navigation stays in normal document flow. Selecting a destination closes the menu and focuses the destination; Escape closes the menu and returns focus to its toggle.
 - Active navigation uses the cobalt surface treatment with a visible location indicator. Honor reduced motion when scrolling between sections.
+- Keep the active sidebar destination in sync with hash links and browser Back/Forward. Resolve public anchor positions after the landing page mounts when returning from a portfolio or sign-up screen.
+- Investment dialogs return keyboard focus to the opening control. Entry tabs use one tab stop, Arrow Left/Right and Home/End, with a labeled tab panel. Interest choices use a fieldset and legend.
+- Pin the investment identity column when its table scrolls horizontally. On mobile, show a visible scroll hint and constrain that column so the financial columns remain reachable. Preserve the native table and column header semantics.
 
 ## Local profiles
 - Visitors without an active profile first see a public, scrollable landing page. Product explanations, estimate assumptions and privacy notes remain accessible without opening a profile.

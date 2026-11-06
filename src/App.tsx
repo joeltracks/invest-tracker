@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from 'react'
 import { Activity, ArrowDownToLine, ArrowRight, BadgeCheck, CalendarDays, ChartNoAxesCombined, Check, ChevronDown, CircleHelp, FileText, Landmark, LockKeyhole, Pencil, Plus, ShieldCheck, Sparkles, Trash2, TrendingUp, Upload, WalletCards, X, ArrowDownUp } from 'lucide-react'
 import { addMonths, estimate, estimateLabel, formatMoney, investmentState, nextPayout, currentYield, dateKey, hasUnknownTerms, netValue, valueRange, incomeRange, scheduledPayouts, taxFactor } from './lib/calculations'
 import { appendEvent, deleteInvestment, loadInvestments, restoreInvestment, saveInvestment, setInvestmentStatus } from './lib/localStore'
@@ -8,6 +8,7 @@ import { ProfilePage, useAccount } from './Account'
 import { PortfolioTools } from './PortfolioTools'
 import { defaultPreferences, loadPreferences, savePreferences, type Preferences } from './lib/preferences'
 import { currencyCodes, kesRate, withKesRate } from './lib/currency'
+import { investmentTabForKey, navigationSection, type InvestmentTab } from './lib/uiNavigation'
 
 const blank: InvestmentInput = { provider: '', name: '', type: 'MMF', principal: 0, currency: 'KES', annualRate: 0, startDate: dateKey(new Date()), maturityDate: null, frequency: 'unknown', interestMode: 'unknown', yieldBasis: 'gross', taxRate: 0, statementValue: null, couponMonths: [] }
 const frequencyLabels: Record<Frequency, string> = { daily: 'Daily', monthly: 'Monthly', quarterly: 'Quarterly', semiannual: 'Semiannually', annual: 'Annually', at_maturity: 'At maturity', unknown: 'Not sure' }
@@ -26,7 +27,7 @@ export function buildInvestmentCsv(items:Investment[],asOf=new Date()):string {
 function App() {
   const { profile, openExisting, closeProfile, pendingAction, completeEntryAction } = useAccount()
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false)
-  const [activeSection, setActiveSection] = useState(()=>typeof window!=='undefined'&&window.location.hash==='#profile'?'profile':'dashboard')
+  const [activeSection, setActiveSection] = useState(()=>navigationSection(typeof window!=='undefined'?window.location.hash:''))
   const navigationToggle = useRef<HTMLButtonElement>(null)
   useEffect(() => {
     const close = (event: KeyboardEvent) => {
@@ -39,7 +40,7 @@ function App() {
     return () => document.removeEventListener('keydown', close)
   }, [mobileNavigationOpen])
   function navigateTo(section: string) {
-    setActiveSection(section)
+    setActiveSection(navigationSection(section))
     setMobileNavigationOpen(false)
     requestAnimationFrame(() => {
       const destination = document.getElementById(section)
@@ -51,7 +52,7 @@ function App() {
     })
   }
   useEffect(()=>{
-    const sync=()=>setActiveSection(window.location.hash==='#profile'?'profile':'dashboard')
+    const sync=()=>setActiveSection(navigationSection(window.location.hash))
     window.addEventListener('popstate',sync);window.addEventListener('hashchange',sync)
     return()=>{window.removeEventListener('popstate',sync);window.removeEventListener('hashchange',sync)}
   },[])
@@ -232,7 +233,8 @@ function App() {
           <div className="section-head list-head"><div><div className="section-kicker"><WalletCards size={15} /> YOUR HOLDINGS</div><h2 id="investments-title">Investments <span className="count-badge">{visible.length}</span></h2></div><button className="text-button" onClick={openAdd}><Plus size={16} /> Add another</button></div>
           <div className="table-tools"><label>State <select value={filterBy} onChange={e=>setFilterBy(e.target.value as typeof filterBy)}><option value="all">All states</option><option value="active">Active</option><option value="scheduled">Scheduled</option><option value="matured">Matured</option><option value="closed">Closed</option></select></label><label>Sort by <select value={sortBy} onChange={e=>setSortBy(e.target.value as typeof sortBy)}><option value="name">Name</option><option value="principal">Principal</option><option value="rate">Yield</option><option value="earned">Earnings</option><option value="maturity">Maturity</option></select></label></div>
           {filtered.length === 0 ? <div className="currency-empty">No investments match this view.</div> : <>
-            <div className="investment-table-wrap" role="region" aria-label="Investment details table. Scroll horizontally for all columns." tabIndex={0}><table className="investment-table"><thead><tr><th>Investment</th><th>Current principal</th><th>Annual rate</th><th>Earned to date*</th><th>Next payout / maturity</th><th>State</th><th>Reconcile</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>{filtered.map(item => <InvestmentRow key={item.id} item={item} onEdit={() => openEdit(item)} onDelete={() => void remove(item)} onEvent={() => recordEvent(item, item.type==="MMF"?"rate_change":undefined)} onCloseInvestment={()=>setItems(setInvestmentStatus(item.id,'closed'))} onReconcile={v=>{const next=saveInvestment({...item,statementValue:v},item.id);setItems(next)}} />)}</tbody></table></div>
+            <p className="table-scroll-hint">Scroll the table sideways to see all columns.</p>
+            <div className="investment-table-wrap" role="region" aria-label="Investment details table. Scroll horizontally for all columns." tabIndex={0}><table className="investment-table"><thead><tr><th scope="col">Investment</th><th scope="col">Current principal</th><th scope="col">Annual rate</th><th scope="col">Earned to date*</th><th scope="col">Next payout / maturity</th><th scope="col">State</th><th scope="col">Reconcile</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead><tbody>{filtered.map(item => <InvestmentRow key={item.id} item={item} onEdit={() => openEdit(item)} onDelete={() => void remove(item)} onEvent={() => recordEvent(item, item.type==="MMF"?"rate_change":undefined)} onCloseInvestment={()=>setItems(setInvestmentStatus(item.id,'closed'))} onReconcile={v=>{const next=saveInvestment({...item,statementValue:v},item.id);setItems(next)}} />)}</tbody></table></div>
             <div className="mobile-investments" role="table" aria-label="Investments">{filtered.map(item => <InvestmentCard key={item.id} item={item} onEdit={() => openEdit(item)} onDelete={() => void remove(item)} onEvent={()=>recordEvent(item,item.type==="MMF"?"rate_change":undefined)} onReconcile={v=>{const next=saveInvestment({...item,statementValue:v},item.id);setItems(next)}} />)}</div>
             <div className="table-foot"><span>* Earnings since the start date, after your entered tax assumption.</span><a href="#formula-details" onClick={e=>{e.preventDefault();openMethodology()}}>Calculation notes <ArrowRight size={13} /></a></div>
           </>}
@@ -282,9 +284,31 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
   return <section className="empty-state panel" id="investments"><div className="empty-art"><span className="empty-art-ring ring-one" /><span className="empty-art-ring ring-two" /><span className="empty-art-icon"><ChartNoAxesCombined size={28} /></span><span className="floating-dot dot-a" /><span className="floating-dot dot-b" /></div><div className="empty-eyebrow">A LITTLE MORE CLARITY</div><h2>Your investments, in one clear view.</h2><p>Add an income-generating investment to see estimated earnings and a simple projection. You can start with just the details you know.</p><button className="button button-primary" onClick={onAdd}><Plus size={17} /> Add your first investment</button><div className="empty-foot"><ShieldCheck size={14} /> Your records stay in this local profile on this browser.</div></section>
 }
 
-function InvestmentModal({ initial, initialTab='manual', existingItems, preferences, onClose, onRecordEvent, onSave }: { initial: Investment | null; initialTab?:'manual'|'statement';existingItems:Investment[];preferences:Preferences; onClose: () => void; onRecordEvent:(item:Investment,kind:'deposit'|'withdrawal'|'rate_change')=>void; onSave: (input: InvestmentInput, id?: string, keepOpen?:boolean,exchangeRate?:number) => Promise<void> }) {
+/** Keep keyboard focus inside investment dialogs and return it to the opening control. */
+function useModalFocus(ref:RefObject<HTMLElement>,onClose:()=>void){
+  const close=useRef(onClose)
+  close.current=onClose
+  useEffect(()=>{
+    const previous=document.activeElement as HTMLElement|null,dialog=ref.current
+    const controls=()=>[...dialog?.querySelectorAll<HTMLElement>('button:not([disabled]),input:not([disabled]):not([type=hidden]),select:not([disabled]),textarea:not([disabled]),a[href],[tabindex]')??[]].filter(control=>control.tabIndex>=0&&control.getClientRects().length>0)
+    controls()[0]?.focus()
+    function keyboard(event:KeyboardEvent){
+      if(event.defaultPrevented)return
+      if(event.key==='Escape'){event.preventDefault();close.current();return}
+      if(event.key!=='Tab'||!dialog)return
+      const entries=controls(),first=entries[0],last=entries.at(-1)
+      if(!first){event.preventDefault();dialog.focus();return}
+      if(event.shiftKey&&(document.activeElement===first||!dialog.contains(document.activeElement))){event.preventDefault();last?.focus()}
+      else if(!event.shiftKey&&(document.activeElement===last||!dialog.contains(document.activeElement))){event.preventDefault();first.focus()}
+    }
+    document.addEventListener('keydown',keyboard)
+    return()=>{document.removeEventListener('keydown',keyboard);if(previous?.isConnected)previous.focus({preventScroll:true})}
+  },[ref])
+}
+
+function InvestmentModal({ initial, initialTab='manual', existingItems, preferences, onClose, onRecordEvent, onSave }: { initial: Investment | null; initialTab?:InvestmentTab;existingItems:Investment[];preferences:Preferences; onClose: () => void; onRecordEvent:(item:Investment,kind:'deposit'|'withdrawal'|'rate_change')=>void; onSave: (input: InvestmentInput, id?: string, keepOpen?:boolean,exchangeRate?:number) => Promise<void> }) {
   const [form, setForm] = useState<InvestmentInput>(initial ? { provider: initial.provider, name: initial.name, type: initial.type, principal: initial.principal, currency: initial.currency, annualRate: initial.annualRate, startDate: initial.startDate, maturityDate: initial.maturityDate, frequency: initial.frequency, interestMode: initial.interestMode, yieldBasis: initial.yieldBasis, taxRate: initial.taxRate, statementValue: initial.statementValue, couponMonths: initial.couponMonths } : blank)
-  const [tab, setTab] = useState<'manual' | 'statement'>(initialTab)
+  const [tab, setTab] = useState<InvestmentTab>(initialTab)
   const [parseStatus, setParseStatus] = useState('')
   const [parseError, setParseError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -297,21 +321,13 @@ function InvestmentModal({ initial, initialTab='manual', existingItems, preferen
   const conversionRate=kesRate(form.currency,conversionRates)
   const fileRef = useRef<HTMLInputElement>(null)
   const dialogRef = useRef<HTMLElement>(null)
-  useEffect(() => {
-    const dialog = dialogRef.current
-    dialog?.querySelector<HTMLElement>('input:not([type=hidden]),button')?.focus()
-    function onKey(event: KeyboardEvent) {
-      if (event.key === 'Escape') { event.preventDefault(); onClose(); return }
-      if (event.key !== 'Tab' || !dialog) return
-      const elements = [...dialog.querySelectorAll<HTMLElement>('button:not([disabled]),input:not([type=hidden]):not([disabled]),select:not([disabled]),a[href]')]
-      if (!elements.length) return
-      const first = elements[0], last = elements[elements.length - 1]
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
-    }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [onClose])
+  useModalFocus(dialogRef,onClose)
+  function switchTab(event:ReactKeyboardEvent<HTMLButtonElement>){
+    const next=investmentTabForKey(tab,event.key)
+    if(!next)return
+    event.preventDefault();setTab(next)
+    document.getElementById(`investment-tab-${next}`)?.focus()
+  }
   const put = <K extends keyof InvestmentInput>(key: K, value: InvestmentInput[K]) => setForm(prev => ({ ...prev, [key]: value }))
   const preview:Investment={...form,id:initial?.id??'preview',events:initial?.events??[],status:initial?.status??'active',createdAt:initial?.createdAt??'',principal:Number(form.principal)||0,annualRate:Number(form.annualRate)||0}
   const todayEstimate=estimate(preview,new Date()), yearEstimate=estimate(preview,addMonths(new Date(),12))
@@ -370,8 +386,9 @@ function InvestmentModal({ initial, initialTab='manual', existingItems, preferen
   }
   const duplicate=existingItems.some(x=>x.currency===form.currency&&x.name.trim().toLowerCase()===form.name.trim().toLowerCase()&&x.provider.trim().toLowerCase()===form.provider.trim().toLowerCase()&&Math.abs(x.principal-Number(form.principal))<0.01)
 
-  return <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}><section ref={dialogRef} className="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div className="modal-header"><div><div className="section-kicker"><Plus size={14} /> PORTFOLIO DETAILS</div><h2 id="modal-title">{initial ? 'Edit investment' : 'Add an investment'}</h2><p>Enter the details you know. You can update them any time.</p></div><button className="icon-button close-button" onClick={onClose} aria-label="Close dialog"><X size={19} /></button></div>
-    {!initial && <div className="modal-tabs" role="tablist" aria-label="Choose how to add an investment"><button role="tab" aria-selected={tab === 'manual'} className={tab === 'manual' ? 'active' : ''} onClick={() => setTab('manual')}><Pencil size={15} /> Enter manually</button><button role="tab" aria-selected={tab === 'statement'} className={tab === 'statement' ? 'active' : ''} onClick={() => setTab('statement')}><FileText size={15} /> From statement <span className="local-tag">LOCAL</span></button></div>}
+  return <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}><section ref={dialogRef} className="modal-card" tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="modal-title"><div className="modal-header"><div><div className="section-kicker"><Plus size={14} /> PORTFOLIO DETAILS</div><h2 id="modal-title">{initial ? 'Edit investment' : 'Add an investment'}</h2><p>Enter the details you know. You can update them any time.</p></div><button className="icon-button close-button" onClick={onClose} aria-label="Close dialog"><X size={19} /></button></div>
+    {!initial && <div className="modal-tabs" role="tablist" aria-label="Choose how to add an investment"><button id="investment-tab-manual" type="button" role="tab" aria-controls="investment-entry-panel" aria-selected={tab === 'manual'} tabIndex={tab==='manual'?0:-1} className={tab === 'manual' ? 'active' : ''} onClick={() => setTab('manual')} onKeyDown={switchTab}><Pencil size={15} /> Enter manually</button><button id="investment-tab-statement" type="button" role="tab" aria-controls="investment-entry-panel" aria-selected={tab === 'statement'} tabIndex={tab==='statement'?0:-1} className={tab === 'statement' ? 'active' : ''} onClick={() => setTab('statement')} onKeyDown={switchTab}><FileText size={15} /> From statement <span className="local-tag">LOCAL</span></button></div>}
+    <div id="investment-entry-panel" className="investment-entry-panel" role={initial?undefined:'tabpanel'} aria-labelledby={initial?undefined:`investment-tab-${tab}`}>
     {tab === 'statement' && !initial && <div className="upload-area"><input ref={fileRef} type="file" accept="application/pdf,.pdf" onChange={e => void handleFile(e.target.files?.[0])} hidden /><div className="upload-icon"><Upload size={19} /></div><strong>Extract from a PDF statement</strong><p>Text is read in this browser. The file is not uploaded anywhere. Scanned PDFs need manual entry in this prototype.</p><button type="button" className="button button-quiet" onClick={() => fileRef.current?.click()}><Upload size={15} /> Choose PDF</button>{fileName && <div className="file-name"><FileText size={14} />{fileName}</div>}{parseStatus && <div className="parse-status" role="status"><BadgeCheck size={15} />{parseStatus}</div>}</div>}
     <form className="investment-form" onSubmit={e => void submit(e)}>{parseError&&<p className="parse-error" role="alert">{parseError}</p>}
       {tab === 'statement' && statementLoaded && <div className="review-banner"><Check size={15} /><span><strong>Review extracted details.</strong> Extraction may be wrong or incomplete. Confirm every value before saving.</span></div>}
@@ -396,18 +413,19 @@ function InvestmentModal({ initial, initialTab='manual', existingItems, preferen
         <label className="field"><span>Payment / compounding frequency <small>As stated by provider</small><span className="help-line">Look for “coupon frequency”, “distribution”, or “interest credited” on the statement’s product terms.</span></span><span className="select-wrap"><select value={form.frequency} onChange={e => setForm(prev=>({...prev,frequency:e.target.value as Frequency,couponMonths:[]}))}>{Object.entries(frequencyLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select><ChevronDown size={15} /></span><small>Payment dates are estimates: {form.couponMonths.length?`coupon months ${form.couponMonths.join(', ')}, using the start day`:'start-date anniversaries'}. Confirm the provider’s actual schedule. Changing frequency resets coupon months.</small></label>
         <label className="field"><span>Yield amount basis</span><span className="select-wrap"><select value={form.yieldBasis} onChange={e=>put('yieldBasis',e.target.value as 'gross'|'net')}><option value="gross">Gross, before tax</option><option value="net">Net, after tax</option></select><ChevronDown size={15}/></span></label>
         {form.yieldBasis==='gross'&&<label className="field"><span>Estimated tax rate <small>Optional</small></span><div className="input-with-suffix"><input type="number" min="0" max="100" step="0.1" value={form.taxRate||''} onChange={e=>put('taxRate',Number(e.target.value))} placeholder="0"/><span>%</span></div></label>}
-        <label className="field full"><span>What happens to interest?</span><div className="radio-cards"><RadioCard selected={form.interestMode === 'unknown'} title="Not sure" description="Show a range from simple accrual to daily compounding." onClick={() => put('interestMode', 'unknown')} /><RadioCard selected={form.interestMode === 'paid_out'} title="Paid out" description="Estimate income separately; principal stays the same." onClick={() => put('interestMode', 'paid_out')} /><RadioCard selected={form.interestMode === 'compound'} title="Reinvested" description="Compound using the frequency selected above." onClick={() => put('interestMode', 'compound')} /></div></label>
+        <fieldset className="field full interest-treatment"><legend>What happens to interest?</legend><div className="radio-cards"><RadioCard selected={form.interestMode === 'unknown'} title="Not sure" description="Show a range from simple accrual to daily compounding." onClick={() => put('interestMode', 'unknown')} /><RadioCard selected={form.interestMode === 'paid_out'} title="Paid out" description="Estimate income separately; principal stays the same." onClick={() => put('interestMode', 'paid_out')} /><RadioCard selected={form.interestMode === 'compound'} title="Reinvested" description="Compound using the frequency selected above." onClick={() => put('interestMode', 'compound')} /></div></fieldset>
       </div>
       {attempted && (!form.provider.trim() || !form.name.trim() || !(form.principal > 0) || (form.maturityDate && form.maturityDate < form.startDate)) && <p className="validation-error" role="alert">Enter a name, provider and positive principal. Maturity must be on or after the start date.</p>}
       <div className="form-preview"><div className="preview-icon"><TrendingUp size={17} /></div><div><strong>Live estimate preview</strong><span>Earned so far: {previewEarned} · Next 12 months: {previewNext}. {previewUnknown?'Range is simple accrual to daily compounding.':form.interestMode==='compound'?(form.frequency==='at_maturity'?'Simple accrual retained until maturity; no interim compounding.':`Compounds ${frequencyLabels[form.frequency].toLowerCase()} using ACT/365.`):'Simple accrual for paid-out interest.'} {form.yieldBasis==='gross'&&form.taxRate>0?` Tax estimate ${form.taxRate}% applied to accrued earnings.`:''}</span></div><CircleHelp size={15} className="preview-help" /></div>
       <div className="modal-footer"><span><LockKeyhole size={13} /> Your information is private</span><div><button type="button" className="button button-quiet" onClick={onClose}>Cancel</button><button type="submit" className="button button-primary" disabled={saving}>{saving ? 'Saving…' : tab==='statement'&&candidateIndex<candidates.length-1?'Save & review next':initial ? 'Save changes' : 'Save investment'} <ArrowRight size={15} /></button></div></div>
-    </form></section></div>
+    </form></div></section></div>
 }
 function RadioCard({ selected, title, description, onClick }: { selected: boolean; title: string; description: string; onClick: () => void }) {
   return <button type="button" className={`radio-card ${selected ? 'chosen' : ''}`} onClick={onClick} aria-pressed={selected}><span className="radio-indicator">{selected && <span />}</span><strong>{title}</strong><small>{description}</small></button>
 }
 function EventModal({item,initialKind,onClose,onSave}:{item:Investment;initialKind?:'deposit'|'withdrawal'|'rate_change';onClose:()=>void;onSave:(event:{id:string;date:string;kind:'deposit'|'withdrawal'|'rate_change';amount?:number;annualRate?:number})=>void}){
- useEffect(()=>{const previous=document.activeElement as HTMLElement|null;const dialog=document.querySelector<HTMLElement>('.event-modal');dialog?.querySelector<HTMLElement>('input,select,button')?.focus();const key=(e:KeyboardEvent)=>{if(e.key==='Escape'){e.preventDefault();onClose()}if(e.key==='Tab'&&dialog){const controls=[...dialog.querySelectorAll<HTMLElement>('button:not([disabled]),input:not([disabled]),select:not([disabled])')];const first=controls[0],last=controls.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last?.focus()}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus()}}};document.addEventListener('keydown',key);return()=>{document.removeEventListener('keydown',key);previous?.focus()}},[onClose])
+ const dialogRef=useRef<HTMLElement>(null)
+ useModalFocus(dialogRef,onClose)
  const [kind,setKind]=useState<'deposit'|'withdrawal'|'rate_change'>(initialKind??'deposit'),[date,setDate]=useState(dateKey(new Date())),[amount,setAmount]=useState(''),[rate,setRate]=useState(''),[error,setError]=useState('')
  const draftAmount=Number(amount),validCashEvent=kind!=='rate_change'&&Number.isFinite(draftAmount)&&draftAmount>0&&Boolean(date)&&!Number.isNaN(Date.parse(date))&&date>=item.startDate&&(!item.maturityDate||date<=item.maturityDate)
  const effectiveAt=new Date(date+'T23:59:59'),beforePrincipal=validCashEvent?estimate(item,effectiveAt).principal:0
@@ -415,7 +433,7 @@ function EventModal({item,initialKind,onClose,onSave}:{item:Investment;initialKi
  const previewPrincipal=validCashEvent&&!overdraft?estimate({...item,events:[...item.events,{id:'draft-cash-event',date,kind,amount:draftAmount}]},effectiveAt).principal:null
 
  function submit(e:FormEvent){e.preventDefault();const n=Number(kind==='rate_change'?rate:amount);if(!date||!Number.isFinite(n)||(kind==='rate_change'?n<0:n<=0)){setError(kind==='rate_change'?'Enter a valid annual rate.':'Enter a positive amount.');return}try{onSave({id:crypto.randomUUID(),date,kind,...(kind==='rate_change'?{annualRate:n}:{amount:n})})}catch(e){setError(e instanceof Error?e.message:'Could not record event.')}}
- return <div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)onClose()}}><section className="modal-card event-modal" role="dialog" aria-modal="true" aria-labelledby="event-title"><div className="modal-header"><div><div className="section-kicker"><ArrowDownUp size={14}/> EVENT LEDGER</div><h2 id="event-title">Record an investment event</h2><p>{item.name} · current principal {formatMoney(estimate(item,new Date()).principal,item.currency)}</p></div><button className="icon-button" onClick={onClose} aria-label="Close"><X size={18}/></button></div><form className="investment-form" onSubmit={submit}><label className="field"><span>Event type</span><span className="select-wrap"><select value={kind} onChange={e=>setKind(e.target.value as typeof kind)}><option value="deposit">Top-up / deposit</option><option value="withdrawal">Withdrawal</option><option value="rate_change">Rate change</option></select><ChevronDown size={15}/></span></label><label className="field"><span>Effective date</span><input type="date" min={item.startDate} max={item.maturityDate??undefined} value={date} onChange={e=>setDate(e.target.value)} required/></label>{kind==='rate_change'?<label className="field"><span>New annual rate</span><div className="input-with-suffix"><input type="number" min="0" max="1000" step="0.01" value={rate} onChange={e=>setRate(e.target.value)} placeholder="5.25"/><span>%</span></div></label>:<label className="field"><span>Amount ({item.currency})</span><input type="number" min="0.01" step="0.01" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="Amount"/></label>}{previewPrincipal!==null&&<div className="form-preview" aria-live="polite"><div><strong>Principal after this event: {formatMoney(previewPrincipal,item.currency)}</strong><br/><span>{formatMoney(beforePrincipal,item.currency)} {kind==='deposit'?'+':'−'} {formatMoney(draftAmount,item.currency)} · effective {date}. {date>dateKey(new Date())?'This is future-dated; today’s principal will change on that date.':'The investment row and portfolio total update when you record the event.'}</span></div></div>}{overdraft&&<p className="validation-error" role="alert">This withdrawal exceeds the principal available on its effective date.</p>}{kind==='rate_change'&&<p className="settings-note">Yield changes affect earnings; they do not change invested principal.</p>}{error&&<p role="alert" className="validation-error">{error}</p>}<div className="ledger-history"><strong>Event history</strong>{item.events.length?<div className="ledger-table-wrap"><table><thead><tr><th>Date</th><th>Event</th><th>Value</th></tr></thead><tbody>{[...item.events].sort((a,b)=>b.date.localeCompare(a.date)).map(x=><tr key={x.id}><td>{x.date}</td><td>{x.kind==='rate_change'?'Rate change':x.kind==='deposit'?'Top-up':'Withdrawal'}</td><td>{x.kind==='rate_change'?`${x.annualRate}%`:formatMoney(x.amount??0,item.currency)}</td></tr>)}</tbody></table></div>:<span>No ledger events yet.</span>}</div><div className="modal-footer"><span>Accrual is recalculated in date order.</span><div><button type="button" className="button button-quiet" onClick={onClose}>Cancel</button><button className="button button-primary" type="submit">Record event</button></div></div></form></section></div>
+ return <div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)onClose()}}><section ref={dialogRef} className="modal-card event-modal" tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="event-title"><div className="modal-header"><div><div className="section-kicker"><ArrowDownUp size={14}/> EVENT LEDGER</div><h2 id="event-title">Record an investment event</h2><p>{item.name} · current principal {formatMoney(estimate(item,new Date()).principal,item.currency)}</p></div><button className="icon-button" onClick={onClose} aria-label="Close"><X size={18}/></button></div><form className="investment-form" onSubmit={submit}><label className="field"><span>Event type</span><span className="select-wrap"><select value={kind} onChange={e=>setKind(e.target.value as typeof kind)}><option value="deposit">Top-up / deposit</option><option value="withdrawal">Withdrawal</option><option value="rate_change">Rate change</option></select><ChevronDown size={15}/></span></label><label className="field"><span>Effective date</span><input type="date" min={item.startDate} max={item.maturityDate??undefined} value={date} onChange={e=>setDate(e.target.value)} required/></label>{kind==='rate_change'?<label className="field"><span>New annual rate</span><div className="input-with-suffix"><input type="number" min="0" max="1000" step="0.01" value={rate} onChange={e=>setRate(e.target.value)} placeholder="5.25"/><span>%</span></div></label>:<label className="field"><span>Amount ({item.currency})</span><input type="number" min="0.01" step="0.01" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="Amount"/></label>}{previewPrincipal!==null&&<div className="form-preview" aria-live="polite"><div><strong>Principal after this event: {formatMoney(previewPrincipal,item.currency)}</strong><br/><span>{formatMoney(beforePrincipal,item.currency)} {kind==='deposit'?'+':'−'} {formatMoney(draftAmount,item.currency)} · effective {date}. {date>dateKey(new Date())?'This is future-dated; today’s principal will change on that date.':'The investment row and portfolio total update when you record the event.'}</span></div></div>}{overdraft&&<p className="validation-error" role="alert">This withdrawal exceeds the principal available on its effective date.</p>}{kind==='rate_change'&&<p className="settings-note">Yield changes affect earnings; they do not change invested principal.</p>}{error&&<p role="alert" className="validation-error">{error}</p>}<div className="ledger-history"><strong>Event history</strong>{item.events.length?<div className="ledger-table-wrap"><table><thead><tr><th>Date</th><th>Event</th><th>Value</th></tr></thead><tbody>{[...item.events].sort((a,b)=>b.date.localeCompare(a.date)).map(x=><tr key={x.id}><td>{x.date}</td><td>{x.kind==='rate_change'?'Rate change':x.kind==='deposit'?'Top-up':'Withdrawal'}</td><td>{x.kind==='rate_change'?`${x.annualRate}%`:formatMoney(x.amount??0,item.currency)}</td></tr>)}</tbody></table></div>:<span>No ledger events yet.</span>}</div><div className="modal-footer"><span>Accrual is recalculated in date order.</span><div><button type="button" className="button button-quiet" onClick={onClose}>Cancel</button><button className="button button-primary" type="submit">Record event</button></div></div></form></section></div>
 }
 function normalizeFrequency(raw: string): Frequency {
   const value = raw.toLowerCase()

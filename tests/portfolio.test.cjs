@@ -32,7 +32,7 @@ function appExports(react=React){
   const exports={},source=fs.readFileSync('src/App.tsx','utf8');
   const js=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true}}).outputText;
   const req=p=>{if(p==='react')return react;if(p==='./Account')return {useAccount:()=>({profile:null,openExisting:()=>{}}),ProfilePage:()=>null};if(p==='./PortfolioTools')return {PortfolioTools:()=>null};if(p==='./lib/pdfImport')return {parsePdf:()=>{throw Error('No PDF access in calculation test')}};if(p.startsWith('./lib/'))return load(p.slice(6));return require(p)};
-  new Function('require','exports',js+';exports.InvestmentModal=InvestmentModal;exports.EventModal=EventModal;')(req,exports);
+  new Function('require','exports',js+';exports.InvestmentModal=InvestmentModal;exports.EventModal=EventModal;exports.useModalFocus=useModalFocus;')(req,exports);
   return exports;
 }
 function dashboard(items,date,rates={USD:130}){
@@ -197,4 +197,48 @@ test('logging out clears the session and protects the portfolio while preserving
     assert.equal(entry.entryScreen(entry.readEntryRoute('#dashboard'),Boolean(profiles.currentLocalProfile())),'landing');
     const dashboardHtml=renderToStaticMarkup(React.createElement(appExports().default));assert.match(dashboardHtml,/>Log out<\/span>/);
   }finally{harness.restore()}
+});
+
+test('navigation preserves the active destination for deep links and history hashes',()=>{
+  const ui=load('uiNavigation');
+  for(const section of ['dashboard','investments','formula-details','profile'])assert.equal(ui.navigationSection('#'+section),section);
+  assert.equal(ui.navigationSection('#portfolio-settings'),'dashboard');assert.equal(ui.navigationSection('investments'),'investments');assert.equal(ui.navigationSection('#unknown'),'dashboard');
+  const previous=global.window;global.window={location:{hash:'#investments'}};
+  try{const html=renderToStaticMarkup(React.createElement(appExports().default));assert.match(html,/<a href="#investments" class="active" aria-current="location"/);assert.ok(!html.includes('href="#dashboard" class="active"'))}
+  finally{if(previous===undefined)delete global.window;else global.window=previous}
+});
+
+test('investment tabs support horizontal arrows, Home and End without consuming other keys',()=>{
+  const {investmentTabForKey:next}=load('uiNavigation');
+  for(const key of ['ArrowLeft','ArrowRight']){assert.equal(next('manual',key),'statement');assert.equal(next('statement',key),'manual')}
+  for(const tab of ['manual','statement']){assert.equal(next(tab,'Home'),'manual');assert.equal(next(tab,'End'),'statement');assert.equal(next(tab,'Tab'),null);assert.equal(next(tab,'ArrowDown'),null)}
+});
+
+test('entry tabs label their panel, expose one tab stop and give interest choices a named group',()=>{
+  const {InvestmentModal}=appExports(),noop=()=>{};
+  for(const tab of ['manual','statement']){
+    const html=renderToStaticMarkup(React.createElement(InvestmentModal,{initial:null,initialTab:tab,existingItems:[],preferences:{baseCurrency:'KES',rates:{},monthlyGoal:0},onClose:noop,onRecordEvent:noop,onSave:async()=>{}}));
+    assert.match(html,new RegExp('id="investment-tab-'+tab+'"[^>]*aria-controls="investment-entry-panel"[^>]*aria-selected="true"[^>]*tabindex="0"'));
+    const other=tab==='manual'?'statement':'manual';assert.match(html,new RegExp('id="investment-tab-'+other+'"[^>]*tabindex="-1"'));
+    assert.match(html,new RegExp('id="investment-entry-panel"[^>]*role="tabpanel"[^>]*aria-labelledby="investment-tab-'+tab+'"'));
+    assert.match(html,/<fieldset class="field full interest-treatment"><legend>What happens to interest\?<\/legend>/);
+    if(tab==='statement')assert.ok(html.indexOf('investment-entry-panel" class=')<html.indexOf('Extract from a PDF statement'));
+  }
+});
+
+test('investment dialog focus ignores hidden controls, stays contained and returns to its opener',()=>{
+  const previousDocument=global.document,listeners=new Map();let cleanup,setups=0,closeRef,closed='';
+  const doc={activeElement:null,addEventListener:(type,fn)=>listeners.set(type,fn),removeEventListener:(type,fn)=>{if(listeners.get(type)===fn)listeners.delete(type)}};
+  function control(name,tabIndex=0,visible=true){return {name,tabIndex,isConnected:true,getClientRects:()=>visible?[{}]:[],focus(){doc.activeElement=this}}}
+  const trigger=control('opener'),first=control('close'),inactive=control('inactive tab',-1),hidden=control('hidden upload',0,false),input=control('name'),last=control('save'),controls=[first,inactive,hidden,input,last];
+  const dialog={querySelectorAll:()=>controls,contains:node=>controls.includes(node),focus(){doc.activeElement=this}},ref={current:dialog};
+  doc.activeElement=trigger;global.document=doc;
+  const react={...React,useRef:initial=>closeRef??(closeRef={current:initial}),useEffect:effect=>{if(!cleanup){setups++;cleanup=effect()}}};
+  try{
+    const hook=appExports(react).useModalFocus;hook(ref,()=>{closed='old'});assert.equal(doc.activeElement,first);
+    doc.activeElement=input;hook(ref,()=>{closed='latest'});assert.equal(setups,1);assert.equal(doc.activeElement,input);
+    function key(key,shiftKey=false){let prevented=false;listeners.get('keydown')({key,shiftKey,defaultPrevented:false,preventDefault(){prevented=true}});return prevented}
+    doc.activeElement=last;assert.equal(key('Tab'),true);assert.equal(doc.activeElement,first);assert.equal(key('Tab',true),true);assert.equal(doc.activeElement,last);
+    assert.equal(key('Escape'),true);assert.equal(closed,'latest');cleanup();assert.equal(doc.activeElement,trigger);assert.equal(listeners.size,0);
+  }finally{if(previousDocument===undefined)delete global.document;else global.document=previousDocument}
 });

@@ -518,7 +518,7 @@
     padding: var(--space-44) 0 var(--space-56);
   }
   .public-hero h1 {
-    font-size: clamp(var(--text-7xl), 9vw, var(--text-8xl));
+    font-size: clamp(var(--text-5xl), 11.5vw, var(--text-8xl));
     letter-spacing: var(--tracking-heading);
     margin-bottom: var(--space-24);
   }
