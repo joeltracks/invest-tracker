@@ -180,3 +180,21 @@ test('Reloaded auth routes retain their tool and do not expose private content b
     assert.ok(html.includes('Log in to your profile'));assert.ok(html.includes('set an income goal'));assert.ok(!html.includes('Private portfolio'));assert.ok(html.includes('not a secure sign-in'));
   }finally{harness.restore()}
 });
+
+test('logging out clears the session and protects the portfolio while preserving saved investments and KES settings',()=>{
+  resetProfiles();const saved=profiles.createLocalProfile(ada);
+  const holdings=JSON.stringify([{...inv(),events:[{id:'top-up',date:'2025-03-01',kind:'deposit',amount:500}]}]);
+  const settings=JSON.stringify({baseCurrency:'KES',rates:{USD:130},monthlyGoal:5000});
+  localStorage.setItem('yieldwise-investments-'+saved.id,holdings);localStorage.setItem('yieldwise-preferences-'+saved.id,settings);
+  const harness=entryHarness();
+  try{
+    let tree=harness.render();tree.props.children[0].props.onLogin();tree=harness.render();tree.props.children[1].props.onOpen(saved);tree=harness.render();
+    assert.equal(profiles.currentLocalProfile().id,saved.id);
+    const before=JSON.stringify([...data]);tree.props.value.closeProfile();tree=harness.render();
+    assert.equal(profiles.currentLocalProfile(),null);assert.equal(tree.props.value.profile,null);assert.equal(tree.props.value.pendingAction,null);assert.equal(window.location.hash,'#home');
+    assert.equal(JSON.stringify([...data]),before);assert.equal(localStorage.getItem('yieldwise-investments-'+saved.id),holdings);assert.equal(localStorage.getItem('yieldwise-preferences-'+saved.id),settings);
+    const html=renderToStaticMarkup(tree);assert.ok(html.includes('Take a look around'));assert.ok(!html.includes('Private portfolio'));
+    assert.equal(entry.entryScreen(entry.readEntryRoute('#dashboard'),Boolean(profiles.currentLocalProfile())),'landing');
+    const dashboardHtml=renderToStaticMarkup(React.createElement(appExports().default));assert.match(dashboardHtml,/>Log out<\/span>/);
+  }finally{harness.restore()}
+});

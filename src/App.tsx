@@ -24,7 +24,7 @@ export function buildInvestmentCsv(items:Investment[],asOf=new Date()):string {
 }
 
 function App() {
-  const { profile, openExisting, pendingAction, completeEntryAction } = useAccount()
+  const { profile, openExisting, closeProfile, pendingAction, completeEntryAction } = useAccount()
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false)
   const [activeSection, setActiveSection] = useState(()=>typeof window!=='undefined'&&window.location.hash==='#profile'?'profile':'dashboard')
   const navigationToggle = useRef<HTMLButtonElement>(null)
@@ -192,6 +192,7 @@ function App() {
       </nav>
       <div className="sidebar-bottom">
         <button type="button" className="sidebar-account" onClick={openExisting}><LockKeyhole size={18}/>Switch profile<ArrowRight size={15}/></button>
+        <button type="button" className="sidebar-account" onClick={closeProfile}><ArrowRight size={18} aria-hidden="true"/><span>Log out</span></button>
         <div className="sidebar-status"><span className="status-dot"/>{profile?.name??'Local portfolio'}<small>Stored in this browser</small></div>
       </div>
     </aside>
