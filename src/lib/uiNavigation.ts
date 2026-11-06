@@ -1,9 +1,9 @@
-export type NavigationSection = 'dashboard' | 'investments' | 'formula-details' | 'profile'
+export type NavigationSection = 'dashboard' | 'investments' | 'formula-details' | 'profile' | 'contact'
 export type InvestmentTab = 'manual' | 'statement'
 
 export function navigationSection(hash: string): NavigationSection {
   const section = hash.replace(/^#/, '').split('?')[0]
-  return section === 'investments' || section === 'formula-details' || section === 'profile' ? section : 'dashboard'
+  return section === 'investments' || section === 'formula-details' || section === 'profile' || section === 'contact' ? section : 'dashboard'
 }
 
 /** The two investment-entry tabs follow the standard horizontal tab keyboard pattern. */

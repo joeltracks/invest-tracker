@@ -9,6 +9,8 @@ import { PortfolioTools } from './PortfolioTools'
 import { defaultPreferences, loadPreferences, savePreferences, type Preferences } from './lib/preferences'
 import { currencyCodes, kesRate, withKesRate } from './lib/currency'
 import { investmentTabForKey, navigationSection, type InvestmentTab } from './lib/uiNavigation'
+import { ContactPage } from './ContactPage'
+import { newContactDraft, type ContactDraft } from './lib/contact'
 
 const blank: InvestmentInput = { provider: '', name: '', type: 'MMF', principal: 0, currency: 'KES', annualRate: 0, startDate: dateKey(new Date()), maturityDate: null, frequency: 'unknown', interestMode: 'unknown', yieldBasis: 'gross', taxRate: 0, statementValue: null, couponMonths: [] }
 const frequencyLabels: Record<Frequency, string> = { daily: 'Daily', monthly: 'Monthly', quarterly: 'Quarterly', semiannual: 'Semiannually', annual: 'Annually', at_maturity: 'At maturity', unknown: 'Not sure' }
@@ -26,6 +28,7 @@ export function buildInvestmentCsv(items:Investment[],asOf=new Date()):string {
 
 function App() {
   const { profile, openExisting, closeProfile, pendingAction, completeEntryAction } = useAccount()
+  const contactDraft = useRef<ContactDraft>(newContactDraft(profile))
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false)
   const [activeSection, setActiveSection] = useState(()=>navigationSection(typeof window!=='undefined'?window.location.hash:''))
   const navigationToggle = useRef<HTMLButtonElement>(null)
@@ -92,6 +95,7 @@ function App() {
     }else if(pendingAction==='income-goal')navigateTo('portfolio-settings')
     else if(pendingAction==='investments')navigateTo('investments')
     else if(pendingAction==='profile')navigateTo('profile')
+    else if(pendingAction==='contact')navigateTo('contact')
     completeEntryAction()
   },[busy,pendingAction,completeEntryAction])
 
@@ -177,7 +181,8 @@ function App() {
     const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); link.download = 'yieldwise-investments.csv'; link.click(); URL.revokeObjectURL(link.href)
   }
 
-  return <div className={`app-shell sidebar-layout ${mobileNavigationOpen ? 'sidebar-open' : ''}`}><a className="skip-link" href={activeSection==='profile'?'#profile':'#dashboard'}>Skip to content</a>
+  const pageId=activeSection==='profile'||activeSection==='contact'?activeSection:'dashboard'
+  return <div className={`app-shell sidebar-layout ${mobileNavigationOpen ? 'sidebar-open' : ''}`}><a className="skip-link" href={`#${pageId}`}>Skip to content</a>
     <header className="mobile-header">
       <a href="#dashboard" className="brand" onClick={e=>{e.preventDefault();navigateTo('dashboard')}} aria-label="Yieldwise home"><span className="brand-mark"><Activity size={19} strokeWidth={2.5}/></span>yieldwise</a>
       <button ref={navigationToggle} type="button" className="button button-quiet navigation-toggle" aria-expanded={mobileNavigationOpen} aria-controls="primary-sidebar" onClick={()=>setMobileNavigationOpen(open=>!open)}>{mobileNavigationOpen?<X size={18}/>:<WalletCards size={18}/>} {mobileNavigationOpen?'Close menu':'Menu'}</button>
@@ -190,6 +195,7 @@ function App() {
         <a href="#investments" className={activeSection==='investments'?'active':''} aria-current={activeSection==='investments'?'location':undefined} onClick={e=>{e.preventDefault();navigateTo('investments')}}><WalletCards size={18}/>Investments</a>
         <a href="#formula-details" className={activeSection==='formula-details'?'active':''} aria-current={activeSection==='formula-details'?'location':undefined} onClick={e=>{e.preventDefault();navigateTo('formula-details')}}><CircleHelp size={18}/><span>How estimates work</span></a>
         <a href="#profile" className={activeSection==='profile'?'active':''} aria-current={activeSection==='profile'?'page':undefined} onClick={e=>{e.preventDefault();navigateTo('profile')}}><LockKeyhole size={18}/><span>Profile</span></a>
+        <a href="#contact" className={activeSection==='contact'?'active':''} aria-current={activeSection==='contact'?'page':undefined} onClick={e=>{e.preventDefault();navigateTo('contact')}}><FileText size={18} aria-hidden="true"/><span>Contact us & feedback</span></a>
       </nav>
       <div className="sidebar-bottom">
         <button type="button" className="sidebar-account" onClick={openExisting}><LockKeyhole size={18}/>Switch profile<ArrowRight size={15}/></button>
@@ -198,8 +204,8 @@ function App() {
       </div>
     </aside>
 
-    <main id={activeSection==='profile'?'profile':'dashboard'} className="main-content">
-      {activeSection==='profile'?<ProfilePage onBackup={()=>navigateTo('portfolio-settings')}/>:<>
+    <main id={pageId} className="main-content">
+      {activeSection==='profile'?<ProfilePage onBackup={()=>navigateTo('portfolio-settings')}/>:activeSection==='contact'?<ContactPage initialDraft={contactDraft.current} onDraftChange={draft=>{contactDraft.current=draft}}/>:<>
       <div className="page-heading"><div><h1>Your portfolio, in motion<span className="heading-period">.</span></h1><p className="subheading">See how dates, cash flows and stated terms shape what your investments may earn.</p></div>
         <div className="heading-actions">{hasData && <button className="button button-quiet" onClick={exportCsv}><ArrowDownToLine size={16} /> Export</button>}<button className="button button-primary" onClick={openAdd}><Plus size={17} /> Add investment</button></div>
       </div>

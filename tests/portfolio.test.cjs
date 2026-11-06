@@ -31,7 +31,7 @@ const React=require('react'),{renderToStaticMarkup}=require('react-dom/server');
 function appExports(react=React){
   const exports={},source=fs.readFileSync('src/App.tsx','utf8');
   const js=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true}}).outputText;
-  const req=p=>{if(p==='react')return react;if(p==='./Account')return {useAccount:()=>({profile:null,openExisting:()=>{}}),ProfilePage:()=>null};if(p==='./PortfolioTools')return {PortfolioTools:()=>null};if(p==='./lib/pdfImport')return {parsePdf:()=>{throw Error('No PDF access in calculation test')}};if(p.startsWith('./lib/'))return load(p.slice(6));return require(p)};
+  const req=p=>{if(p==='react')return react;if(p==='./Account')return {useAccount:()=>({profile:null,openExisting:()=>{}}),ProfilePage:()=>null};if(p==='./ContactPage')return {ContactPage:()=>null};if(p==='./PortfolioTools')return {PortfolioTools:()=>null};if(p==='./lib/pdfImport')return {parsePdf:()=>{throw Error('No PDF access in calculation test')}};if(p.startsWith('./lib/'))return load(p.slice(6));return require(p)};
   new Function('require','exports',js+';exports.InvestmentModal=InvestmentModal;exports.EventModal=EventModal;exports.useModalFocus=useModalFocus;')(req,exports);
   return exports;
 }
@@ -45,6 +45,7 @@ function dashboard(items,date,rates={USD:130}){
     const req=p=>{
       if(p==='react')return {...React,useState:initial=>Array.isArray(initial)?[items,()=>{}]:React.useState(initial===true?false:initial)};
       if(p==='./Account')return {useAccount:()=>({profile:null,openExisting:()=>{}}),ProfilePage:()=>null};
+      if(p==='./ContactPage')return {ContactPage:()=>null};
       if(p==='./PortfolioTools')return {PortfolioTools:()=>null};
       if(p==='./lib/pdfImport')return {parsePdf:()=>{throw Error('No PDF access in calculation test')}};
       if(p.startsWith('./lib/'))return load(p.slice(6));
@@ -241,4 +242,65 @@ test('investment dialog focus ignores hidden controls, stays contained and retur
     doc.activeElement=last;assert.equal(key('Tab'),true);assert.equal(doc.activeElement,first);assert.equal(key('Tab',true),true);assert.equal(doc.activeElement,last);
     assert.equal(key('Escape'),true);assert.equal(closed,'latest');cleanup();assert.equal(doc.activeElement,trigger);assert.equal(listeners.size,0);
   }finally{if(previousDocument===undefined)delete global.document;else global.document=previousDocument}
+});
+
+const contact=load('contact');
+const contactDraft=()=>({...contact.newContactDraft(ada),message:'Please add a way to compare monthly income.'});
+function contactUi(react=React){
+  const exports={},source=fs.readFileSync('src/ContactPage.tsx','utf8');
+  const js=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText;
+  new Function('require','exports',js)(p=>p==='react'?react:p==='./lib/contactConfig'?{contactEmail:''}:p.startsWith('./lib/')?load(p.slice(6)):require(p),exports);
+  return exports;
+}
+
+test('contact is below Profile, supports history and resumes through the profile gate',()=>{
+  const html=renderToStaticMarkup(React.createElement(appExports().default));
+  assert.ok(html.indexOf('href="#profile"')<html.indexOf('href="#contact"'));assert.ok(html.includes('Contact us &amp; feedback'));
+  assert.equal(load('uiNavigation').navigationSection('#contact'),'contact');assert.equal(entry.readEntryRoute('#contact').action,'contact');
+  assert.equal(entry.entryScreen(entry.readEntryRoute('#contact'),false),'signup');assert.equal(entry.portfolioUrl('contact'),'#contact');
+  assert.equal(entry.readEntryRoute(entry.entryUrl('login','contact')).action,'contact');
+});
+
+test('contact notes validate trimmed values and include only explicitly entered details',()=>{
+  const draft={...contactDraft(),name:' Ada Example ',message:'  Please improve my income view.  ',investments:[{privateValue:'UNRELATED_PORTFOLIO_DATA'}]};
+  const note=contact.formatContactNote(draft);assert.ok(note.includes('Name: Ada Example'));assert.ok(note.endsWith('Please improve my income view.'));assert.ok(!note.includes('UNRELATED_PORTFOLIO_DATA'));
+  assert.throws(()=>contact.validateContactDraft({...contactDraft(),message:'          '}),/10–4,000/);
+  assert.throws(()=>contact.validateContactDraft({...contactDraft(),message:'x'.repeat(4001)}),/10–4,000/);
+  assert.throws(()=>contact.validateContactDraft({...contactDraft(),email:'bad'}),/reply email/);
+  assert.throws(()=>contact.validateContactDraft({...contactDraft(),topic:'__proto__'}),/type of note/);
+  assert.throws(()=>contact.validateContactDraft({...contactDraft(),name:'Ada\nBcc: x'}),/name/);
+});
+
+test('future email drafts encode notes and reject missing or injected destinations',()=>{
+  const draft={...contactDraft(),message:'Feedback &bcc=unwanted@example.test\nThanks — asante!'};
+  const uri=contact.buildContactMailto('team+feedback@example.test',draft),url=new URL(uri);
+  assert.ok(uri.startsWith('mailto:team%2Bfeedback@example.test?'));assert.equal(url.searchParams.get('subject'),'[Yieldwise] Feedback');
+  assert.ok(url.searchParams.get('body').endsWith(draft.message));assert.equal(url.searchParams.get('bcc'),null);
+  for(const value of ['', 'team@example.test?bcc=other@example.test', 'team@example.test\r\nBcc: other@example.test'])assert.equal(contact.contactRecipient(value),null);
+  assert.throws(()=>contact.buildContactMailto('',draft),/not configured/);
+  assert.ok(contact.buildContactMailto('team%0abcc@example.test',draft).startsWith('mailto:team%250abcc@example.test?'));
+});
+
+test('an unconfigured contact page offers copying without claiming email delivery',()=>{
+  const {ContactPage}=contactUi();
+  const html=renderToStaticMarkup(React.createElement(ContactPage,{initialDraft:contactDraft(),onDraftChange:()=>{},recipient:''}));
+  assert.ok(html.includes('Email delivery is being set up'));assert.ok(html.includes('Copy note'));assert.ok(!html.includes('Open email draft'));assert.ok(!html.includes('VITE_'));assert.ok(html.includes('Your message'));
+  const configured=renderToStaticMarkup(React.createElement(ContactPage,{initialDraft:contactDraft(),onDraftChange:()=>{},recipient:'team@example.test'}));
+  assert.ok(configured.includes('Open email draft'));assert.ok(configured.includes('Copy note'));assert.ok(configured.includes('send it there'));
+});
+
+test('clipboard failure leaves a functional prepared-note fallback and no sent confirmation',async()=>{
+  const originalNavigator=Object.getOwnPropertyDescriptor(global,'navigator'),originalRaf=global.requestAnimationFrame;
+  Object.defineProperty(global,'navigator',{configurable:true,value:{clipboard:{writeText:async()=>{throw Error('permission denied')}}}});global.requestAnimationFrame=()=>0;
+  const states=[],refs=[];let cursor=0,refCursor=0,latest;
+  const react={...React,useState:initial=>{const index=cursor++;if(!(index in states))states[index]=typeof initial==='function'?initial():initial;return[states[index],value=>{states[index]=typeof value==='function'?value(states[index]):value}]},useRef:initial=>{const index=refCursor++;return refs[index]??(refs[index]={current:initial})}};
+  const {ContactPage}=contactUi(react),props={initialDraft:contactDraft(),onDraftChange:value=>{latest=value},recipient:''};
+  const render=()=>{cursor=0;refCursor=0;return ContactPage(props)};
+  const find=(node,predicate)=>{if(!node||typeof node!=='object')return null;if(predicate(node))return node;for(const child of React.Children.toArray(node.props?.children)){const match=find(child,predicate);if(match)return match}return null};
+  try{
+    let tree=render(),form=find(tree,node=>node.type==='form');await form.props.onSubmit({preventDefault(){},nativeEvent:{submitter:null}});await new Promise(resolve=>setImmediate(resolve));tree=render();
+    const status=find(tree,node=>node.props?.role==='status');assert.ok(status.props.children.includes('copy it manually'));assert.ok(status.props.children.includes('not been sent'));
+    assert.equal(find(tree,node=>node.props?.id==='contact-prepared').props.value,contact.formatContactNote(props.initialDraft));
+    find(tree,node=>node.props?.id==='contact-message').props.onChange({target:{value:'Here is an updated feedback note.'}});tree=render();assert.equal(latest.message,'Here is an updated feedback note.');assert.equal(find(tree,node=>node.props?.role==='status'),null);assert.equal(find(tree,node=>node.props?.id==='contact-prepared'),null);
+  }finally{if(originalNavigator)Object.defineProperty(global,'navigator',originalNavigator);else delete global.navigator;if(originalRaf===undefined)delete global.requestAnimationFrame;else global.requestAnimationFrame=originalRaf}
 });

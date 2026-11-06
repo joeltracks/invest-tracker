@@ -70,6 +70,7 @@ A Financial Dashboard: a restrained navy navigation rail, a cool light canvas, b
 - Keep the active sidebar destination in sync with hash links and browser Back/Forward. Resolve public anchor positions after the landing page mounts when returning from a portfolio or sign-up screen.
 - Investment dialogs return keyboard focus to the opening control. Entry tabs use one tab stop, Arrow Left/Right and Home/End, with a labeled tab panel. Interest choices use a fieldset and legend.
 - Pin the investment identity column when its table scrolls horizontally. On mobile, show a visible scroll hint and constrain that column so the financial columns remain reachable. Preserve the native table and column header semantics.
+- Place Contact us & feedback directly below Profile. Its dedicated page uses the shared form tokens and keeps the note in memory across section navigation, scoped to the current open profile. Never indicate delivery without a delivery service: before mailbox setup, offer copying with a manual fallback; after setup, clearly hand off to the user's email app.
 
 ## Local profiles
 - Visitors without an active profile first see a public, scrollable landing page. Product explanations, estimate assumptions and privacy notes remain accessible without opening a profile.

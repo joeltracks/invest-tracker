@@ -1,5 +1,5 @@
 /** Only known portfolio actions may be resumed after local sign up / log in. */
-export const portfolioActions = ['dashboard', 'add-investment', 'import-statement', 'income-goal', 'investments', 'profile'] as const
+export const portfolioActions = ['dashboard', 'add-investment', 'import-statement', 'income-goal', 'investments', 'profile', 'contact'] as const
 export type PortfolioAction = typeof portfolioActions[number]
 export interface EntryRoute { page: 'landing' | 'signup' | 'login' | 'portfolio'; action: PortfolioAction }
 
@@ -11,7 +11,7 @@ export function readEntryRoute(hash: string): EntryRoute {
     return { page: path, action }
   }
   if (['home', 'public-content', 'features', 'how-it-works', 'estimates', 'privacy'].includes(path)) return { page: 'landing', action: 'dashboard' }
-  const action = path === 'profile' ? 'profile' : path === 'investments' ? 'investments' : path === 'portfolio-settings' ? 'income-goal' : 'dashboard'
+  const action = path === 'profile' ? 'profile' : path === 'contact' ? 'contact' : path === 'investments' ? 'investments' : path === 'portfolio-settings' ? 'income-goal' : 'dashboard'
   return { page: 'portfolio', action }
 }
 
@@ -28,7 +28,7 @@ export function entryUrl(page: 'signup' | 'login', action: PortfolioAction): str
 }
 
 export function portfolioUrl(action: PortfolioAction): string {
-  return action === 'profile' ? '#profile' : action === 'income-goal' ? '#portfolio-settings' : action === 'investments' ? '#investments' : '#dashboard'
+  return action === 'profile' ? '#profile' : action === 'contact' ? '#contact' : action === 'income-goal' ? '#portfolio-settings' : action === 'investments' ? '#investments' : '#dashboard'
 }
 
 export const actionLabels: Record<PortfolioAction, string> = {
@@ -38,4 +38,5 @@ export const actionLabels: Record<PortfolioAction, string> = {
   'income-goal': 'set an income goal',
   investments: 'manage your investments',
   profile: 'open your profile',
+  contact: 'contact us or share feedback',
 }

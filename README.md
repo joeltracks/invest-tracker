@@ -58,6 +58,14 @@ Run npm install, npm run dev, npm test, npm run typecheck and npm run build (out
 - Local profiles are not secure accounts. Anyone using the browser can open them; data is unencrypted and does not sync across devices. JSON export/import backs up investments, ledger, goals and rates, not profile identity or authentication. Use a private browser and keep financial backups private.
 - Removing a profile clears only that profile's records and settings in this browser. Other profiles, the preserved original workspace and downloaded backups remain.
 
+## Contact us & feedback
+
+The sidebar destination below Profile opens a note form for questions, feedback and problem reports. It starts with the current profile's name and email, both editable. Drafts stay in memory while moving between portfolio sections; reloading, switching profiles or logging out clears them. No note is queued or stored on a server, and investments or statements are never attached automatically.
+
+Until the mailbox is ready, leave `VITE_CONTACT_EMAIL` blank. The form offers **Copy note**, with a selectable prepared-note fallback if clipboard access is unavailable. It explicitly says the note has not been sent.
+
+When the mailbox is ready, set `VITE_CONTACT_EMAIL` to the chosen single email address in `.env.local` for local Vite development and in Vercel's environment variables, then redeploy. The address is public configuration, not a secret. The primary action becomes **Open email draft**; the user's email app must send the message. Mail-client availability and URI length limits can vary, so Copy note stays available. This version has no server email delivery or delivery receipt. A future email API must keep provider credentials on the server.
+
 ## Deferred backend
 
 The frontend no longer initializes or calls Supabase Auth. The existing client/config and Edge Function files are retained for a later integration phase; they are not part of the local profile flow. Configuring the old environment variables does not enable account services in this version. No database tables, policies or external accounts were created or changed for this work. Password sign-in, recovery, MFA, cloud synchronization and server account deletion require that future integration.

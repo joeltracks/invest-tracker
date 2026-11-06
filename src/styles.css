@@ -4206,3 +4206,110 @@ a {
     align-items: flex-start;
   }
 }
+
+/* Contact notes share the portfolio's form controls and semantic palette. */
+.contact-page {
+  max-width: 1120px;
+}
+.contact-panel {
+  max-width: 780px;
+  padding: var(--space-28);
+}
+.contact-panel h2 {
+  margin: 0 0 var(--space-12);
+  font: var(--weight-semibold) var(--text-2xl)/var(--leading-tight) var(--heading);
+}
+.contact-delivery-note,.contact-session-note,.contact-notice {
+  color: var(--muted);
+  font-size: var(--text-base);
+  line-height: var(--leading-body);
+}
+.contact-delivery-note {
+  margin: 0 0 var(--space-24);
+}
+.contact-panel form {
+  display: grid;
+  gap: var(--space-20);
+}
+.contact-details-grid {
+  display: grid;
+  grid-template-columns: repeat(2,minmax(0,1fr));
+  gap: var(--space-16);
+}
+.contact-panel .field {
+  font-size: var(--text-base);
+}
+.contact-panel textarea {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  min-height: 10rem;
+  padding: var(--space-12);
+  resize: vertical;
+  border: var(--stroke) solid var(--control-border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: var(--weight-regular) var(--text-md)/var(--leading-body) var(--font-body);
+}
+.contact-panel textarea::placeholder {
+  color: var(--placeholder);
+}
+.contact-panel textarea:focus-visible {
+  outline: var(--focus-width) solid var(--focus);
+  outline-offset: var(--focus-offset);
+}
+.contact-message-help {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-16);
+  margin-top: calc(var(--space-12) * -1);
+  color: var(--muted);
+  font-size: var(--text-xs);
+  line-height: var(--leading-body);
+}
+.contact-message-help small {
+  font-size: inherit;
+}
+.contact-message-help > span {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+.contact-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-12);
+}
+.contact-actions .button {
+  min-height: 44px;
+  font-size: var(--text-base);
+}
+.contact-notice {
+  margin: var(--space-20) 0 0;
+  color: var(--ink);
+}
+.contact-preview {
+  margin-top: var(--space-20);
+}
+.contact-preview textarea {
+  background: var(--surface-muted);
+}
+.contact-session-note {
+  margin: var(--space-24) 0 0;
+  padding-top: var(--space-20);
+  border-top: var(--stroke) solid var(--line);
+  font-size: var(--text-xs);
+}
+@media (max-width:760px) {
+  .contact-panel {
+    padding: var(--space-20) var(--space-16);
+  }
+  .contact-details-grid {
+    grid-template-columns: 1fr;
+  }
+  .contact-message-help {
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+}
