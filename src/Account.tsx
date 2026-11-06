@@ -74,9 +74,9 @@ export function CreateProfilePage({canCancel,hasProfiles,canKeepBrowser,onCancel
       <section className="profile-form-card" aria-labelledby="create-profile-title"><div className="profile-card-kicker">WELCOME TO YIELDWISE</div><h2 id="create-profile-title">Create a new profile</h2><p>These details are saved only in this browser. Your email is an identifier; no email will be sent.</p>
         <form onSubmit={submit}><label className="field">Full name<input autoComplete="name" minLength={2} maxLength={80} required value={name} onChange={e=>setName(e.target.value)} placeholder="Your name"/></label><label className="field">Email address<input type="email" autoComplete="email" maxLength={254} required value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com"/></label>
           {canKeepBrowser&&<label className="profile-checkbox"><input type="checkbox" checked={keep} onChange={e=>setKeep(e.target.checked)}/><span>Keep my existing browser investments and KES settings in this profile. The originals will also remain in browser storage.</span></label>}
-          {error&&<p className="validation-error" role="alert">{error}</p>}<button className="button button-primary profile-submit" type="submit">Create profile & open portfolio <span aria-hidden="true">→</span></button>
+          {error&&<p className="validation-error" role="alert">{error}</p>}<button className="button button-primary profile-submit" type="submit">Sign up <span aria-hidden="true">→</span></button>
         </form>
-        <div className="profile-form-footer"><p>{hasProfiles?'Already have a profile on this device?':'Returning to a profile saved on this device?'}</p><button className="text-button" onClick={onExisting}>Open an existing profile</button>{canCancel&&<button className="text-button" onClick={onCancel}>Back to my profile</button>}</div>
+        <div className="profile-form-footer"><p>{hasProfiles?'Already have a profile on this device?':'Returning to a profile saved on this device?'}</p><button className="text-button" onClick={onExisting}>Log in</button>{canCancel&&<button className="text-button" onClick={onCancel}>Back to my profile</button>}</div>
       </section>
     </div>
   </main>
