@@ -39,8 +39,7 @@ export function ContactPage({ initialDraft, onDraftChange, recipient = contactEm
     }
     setPrepared(note)
     const version = revision.current
-    const button = (event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null
-    if (address && button?.value !== 'copy') {
+    if (address) {
       try {
         window.location.assign(buildContactMailto(address, draft))
         setNotice('Your email app handles sending. Your note is still available below; opening a draft does not confirm delivery.')
@@ -124,13 +123,12 @@ export function ContactPage({ initialDraft, onDraftChange, recipient = contactEm
 
           {error && <p className="validation-error" role="alert">{error}</p>}
           <div className="contact-actions">
-            <button type="submit" name="action" value={address ? 'email' : 'copy'} aria-describedby="contact-delivery-note" className="button button-primary" disabled={busy}>
+            <button type="submit" aria-describedby="contact-delivery-note" className="button button-primary" disabled={busy}>
               {busy ? 'Copying…' : 'Send feedback'}
             </button>
             <p className="contact-delivery-note" id="contact-delivery-note">
               {address ? 'Send your feedback from your email app once the draft opens.' : 'Email delivery is unavailable here. This button copies your feedback.'}
             </p>
-            {address && <button type="submit" name="action" value="copy" className="button button-quiet" disabled={busy}>Copy note</button>}
           </div>
         </form>
         {notice && <p className="contact-notice" role="status">{notice}</p>}

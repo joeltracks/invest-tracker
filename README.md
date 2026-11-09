@@ -64,7 +64,7 @@ The sidebar destination below Profile opens a feedback form with topic choices, 
 
 Until the mailbox is ready, leave `VITE_CONTACT_EMAIL` blank. **Send feedback** copies the note, with a selectable fallback if clipboard access is unavailable. It explicitly says the note has not been sent.
 
-When the mailbox is ready, set `VITE_CONTACT_EMAIL` to the chosen single email address in `.env.local` for local Vite development and in Vercel's environment variables, then redeploy. The address is public configuration, not a secret. **Send feedback** opens a draft in the user’s email app, where they can send the message. Mail-client availability and URI length limits can vary, so Copy note stays available. This version has no server email delivery or delivery receipt. A future email API must keep provider credentials on the server.
+When the mailbox is ready, set `VITE_CONTACT_EMAIL` to the chosen single email address in `.env.local` for local Vite development and in Vercel's environment variables, then redeploy. The address is public configuration, not a secret. **Send feedback** opens a draft in the user’s email app, where they can send the message. The prepared note remains selectable after opening the draft. This version has no server email delivery or delivery receipt. A future email API must keep provider credentials on the server.
 
 ## Deferred backend
 

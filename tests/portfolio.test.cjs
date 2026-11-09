@@ -273,7 +273,7 @@ test('an unconfigured contact page offers copying without claiming email deliver
   const html=renderToStaticMarkup(React.createElement(ContactPage,{initialDraft:contactDraft(),onDraftChange:()=>{},recipient:''}));
   assert.ok(html.includes('This button copies your feedback'));assert.ok(html.includes('Send feedback'));assert.ok(!html.includes('VITE_'));assert.ok(html.includes('Your feedback'));
   const configured=renderToStaticMarkup(React.createElement(ContactPage,{initialDraft:contactDraft(),onDraftChange:()=>{},recipient:'team@example.test'}));
-  assert.ok(configured.includes('Send feedback'));assert.ok(configured.includes('Copy note'));assert.ok(configured.includes('Send your feedback from your email app'));
+  assert.ok(configured.includes('Send feedback'));assert.ok(!configured.includes('Copy note'));assert.ok(configured.includes('Send your feedback from your email app'));
 });
 
 test('clipboard failure leaves a functional prepared-note fallback and no sent confirmation',async()=>{
