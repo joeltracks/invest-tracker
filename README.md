@@ -60,7 +60,7 @@ Run npm install, npm run dev, npm test, npm run typecheck and npm run build (out
 
 ## Contact us & feedback
 
-The sidebar destination below Profile opens a feedback form with topic choices, an optional 1–5 rating, a message and an optional reply email. Drafts stay in memory while moving between portfolio sections; reloading, switching profiles or logging out clears them. No note is queued or stored on a server, and investments or statements are never attached automatically.
+The sidebar destination below Profile opens a feedback form with topic choices, an optional 1–5 rating, a message and a required email address for feedback attribution and follow-up. Drafts stay in memory while moving between portfolio sections; reloading, switching profiles or logging out clears them. No note is queued or stored on a server, and investments or statements are never attached automatically.
 
 Until the mailbox is ready, leave `VITE_CONTACT_EMAIL` blank. **Send feedback** copies the note, with a selectable fallback if clipboard access is unavailable. It explicitly says the note has not been sent.
 

@@ -115,11 +115,13 @@ export function ContactPage({ initialDraft, onDraftChange, recipient = contactEm
             </div>
           </div>
 
-          <label className="field" htmlFor="contact-email">
-            <span>Email <small>(optional, only if you’d like a reply)</small></span>
+          <div className="field">
+            <label htmlFor="contact-email">Email address</label>
             <input id="contact-email" type="email" autoComplete="email" maxLength={254} placeholder="you@example.com"
-              value={draft.email} onChange={event => change('email', event.target.value)} />
-          </label>
+              required aria-describedby="contact-email-help" value={draft.email}
+              onChange={event => change('email', event.target.value)} />
+            <small id="contact-email-help">Your email helps us understand where feedback comes from and follow up when needed.</small>
+          </div>
 
           {error && <p className="validation-error" role="alert">{error}</p>}
           <div className="contact-actions">

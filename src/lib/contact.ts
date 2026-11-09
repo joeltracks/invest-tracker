@@ -19,7 +19,7 @@ export function newContactDraft(): ContactDraft {
 
 export function validateContactDraft(draft: ContactDraft): ContactDraft {
   const clean = { ...draft, email: draft.email.trim(), message: draft.message.trim() }
-  if (clean.email && !contactRecipient(clean.email)) throw new ContactDraftError('email', 'Enter a valid reply email address.')
+  if (!contactRecipient(clean.email)) throw new ContactDraftError('email', 'Enter a valid email address.')
   if (!Object.prototype.hasOwnProperty.call(contactTopics, clean.topic)) throw new ContactDraftError('topic', 'Choose the type of note you want to share.')
   if (clean.rating !== null && (!Number.isInteger(clean.rating) || clean.rating < 1 || clean.rating > 5)) throw new ContactDraftError('rating', 'Choose a rating from 1 to 5.')
   if (clean.message.length < 10 || clean.message.length > contactMessageLimit) throw new ContactDraftError('message', 'Write a note using 10–1,000 characters.')
@@ -33,7 +33,7 @@ export function contactSubject(draft: ContactDraft): string {
 function contactBody(draft: ContactDraft): string {
   const details = []
   if (draft.rating !== null) details.push('Experience rating: ' + draft.rating + '/5')
-  if (draft.email) details.push('Reply email: ' + draft.email)
+  details.push('Email address: ' + draft.email)
   return [...details, draft.message].join('\n\n')
 }
 
