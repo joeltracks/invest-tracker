@@ -45,7 +45,7 @@ For screen readers, mobile cards expose table roles and descriptive labels. This
 
 Run npm install, npm run dev, npm test, npm run typecheck and npm run build (output: dist). Vercel uses Vite, build command npm run build, output directory dist. No environment variables or database are required for local profiles.
 
-## Profile flow
+## Browser-only profile flow
 
 - Visitors first land on a public page with scrollable product information, estimate assumptions and privacy notes. Returning users without an active tab session can browse it too; no login popup opens automatically.
 - Functional actions (Add investment, Set income goal and Manage investments) lead to Sign up. The page offers Log in for an existing profile and Back to website. Name and email are validated; duplicate email addresses on this device are rejected.
@@ -66,9 +66,21 @@ Until the mailbox is ready, leave `VITE_CONTACT_EMAIL` blank. **Send feedback** 
 
 When the mailbox is ready, set `VITE_CONTACT_EMAIL` to the chosen single email address in `.env.local` for local Vite development and in Vercel's environment variables, then redeploy. The address is public configuration, not a secret. **Send feedback** opens a draft in the user’s email app, where they can send the message. The prepared note remains selectable after opening the draft. This version has no server email delivery or delivery receipt. A future email API must keep provider credentials on the server.
 
-## Deferred backend
+## Cloud backend setup
 
-The frontend no longer initializes or calls Supabase Auth. The existing client/config and Edge Function files are retained for a later integration phase; they are not part of the local profile flow. Configuring the old environment variables does not enable account services in this version. No database tables, policies or external accounts were created or changed for this work. Password sign-in, recovery, MFA, cloud synchronization and server account deletion require that future integration.
+Cloud mode is opt-in by environment. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY in .env.local or the matching Vercel environment. With either missing, the app uses the original browser workspace. Never place Supabase administrative keys in Vite variables.
+
+1. Apply the versioned SQL migration to the target Supabase project. Expose public through the Data API and keep yieldwise_private unexposed. Its authenticated table grants are for the two invoker RPCs, with RLS as a second layer. Do not add the private schema to the API’s exposed schemas.
+2. Configure Supabase Auth for verified email and password, a minimum password length of eight, and email confirmation. Add exact site and recovery callback URLs (for example http://localhost:5173/ and http://localhost:5173/?recovery=1) for each intended environment. Set up transactional SMTP before public signup. Recovery links should be opened in the browser that requested them.
+3. Deploy the delete-account Edge Function with ALLOWED_ORIGIN set to the exact app origin. The function checks the authenticated caller, recent sign-in, MFA assurance if enrolled, and explicit DELETE confirmation.
+4. Use a separate staging Supabase project and Vercel environment before setting the two public variables in production. Verify email delivery, sign-in and recovery, MFA, and cross-device portfolio access. Vercel needs a new deployment after environment changes.
+
+From a cloud account, Profile links to the browser-only workspace. Open your original local profile on the same origin, export JSON in portfolio settings, then return to the cloud account and review the import. Cloud import requires an empty portfolio and commits investments, events and selected KES settings together. The original browser workspace is preserved.
+
+The database stores opening terms and dated ledger events separately. An owner-specific revision guards writes from stale browser tabs. A stale or uncertain write should be followed by reloading and inspecting the saved record before retrying. PostgreSQL stores values as numeric; the browser continues using the existing number-based estimates.
+
+Run the rollback-only SQL checks in supabase/tests/portfolio.sql against a staging database as its owner. These checks create synthetic rows inside one transaction and leave no test data behind. Retention for removed holdings and backup recovery targets should be set before public launch.
+
 
 Manual rates mean: 1 source-currency unit = X reporting-currency units. Rates are user-set, not live quotes. Changing reporting currency clears conversions when saved. Any missing rate blocks combined totals and goal progress rather than silently assuming parity. Original currency views keep native amounts.
 

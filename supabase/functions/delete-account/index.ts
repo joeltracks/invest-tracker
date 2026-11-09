@@ -16,12 +16,13 @@ Deno.serve(async (request: Request) => {
     const {data:{user},error} = await client.auth.getUser(token)
     if (error || !user) return respond(401,'Sign in again before deleting your account.')
     const body = await request.json()
-    if (body.confirmation !== 'DELETE') return respond(400,'Type DELETE to confirm.')
+    if (body.confirmation !== 'DELETE' || body.accountId !== user.id) return respond(400,'Confirm deletion for the currently signed-in account.')
     // Only inspect claims after the token has been validated by Supabase Auth.
     const payload = token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')
     const claims = JSON.parse(atob(payload.padEnd(Math.ceil(payload.length/4)*4,'=')))
     const recent = Math.max(0,...(claims.amr??[]).map((a:{timestamp:number})=>Number(a.timestamp)||0))
-    if (Date.now()/1000-recent>300) return respond(403,'Sign in again or verify MFA, then delete within five minutes.')
+    const age = Date.now()/1000-recent
+    if (age < -30 || age > 300) return respond(403,'Sign in again or verify MFA, then delete within five minutes.')
     const factors = await client.auth.admin.mfa.listFactors({userId:user.id})
     if (factors.error) return respond(500,'Could not check account security. Retry later.')
     if (factors.data.factors.some(f=>f.status==='verified') && claims.aal !== 'aal2') return respond(403,'Verify your authenticator before deleting your account.')

@@ -4,18 +4,22 @@ import { setPreferenceScope } from './lib/preferences'
 import { closeLocalProfile, createLocalProfile, currentLocalProfile, findLocalProfile, hasBrowserPortfolio, loadProfiles, openLocalProfile, removeLocalProfile, updateLocalProfile, type LocalProfile, type ProfileDetails } from './lib/profiles'
 import { LandingPage } from './LandingPage'
 import { actionLabels, entryScreen, entryUrl, portfolioUrl, readEntryRoute, type PortfolioAction } from './lib/entryRoutes'
+import type { CloudPortfolio } from './lib/cloudPortfolio'
 
 interface ProfileContext {
   profile:LocalProfile|null
   openExisting:()=>void
   startNew:()=>void
-  closeProfile:()=>void
-  update:(details:ProfileDetails)=>void
-  remove:()=>void
+  closeProfile:()=>void|Promise<void>
+  update:(details:ProfileDetails)=>void|Promise<void>
+  remove:()=>void|Promise<void>
+  cloud?:CloudPortfolio
+  security?:ReactNode
   pendingAction:PortfolioAction|null
   completeEntryAction:()=>void
 }
-const Context=createContext<ProfileContext>({profile:null,openExisting:()=>{},startNew:()=>{},closeProfile:()=>{},update:()=>{},remove:()=>{},pendingAction:null,completeEntryAction:()=>{}})
+export const AccountContext=createContext<ProfileContext>({profile:null,openExisting:()=>{},startNew:()=>{},closeProfile:()=>{},update:()=>{},remove:()=>{},pendingAction:null,completeEntryAction:()=>{}})
+const Context = AccountContext
 export const useAccount=()=>useContext(Context)
 const message=(error:unknown)=>error instanceof Error?error.message:String(error)
 
@@ -139,17 +143,18 @@ export function OpenProfileDialog({onClose,onOpen,onCreate,action='dashboard'}:{
 }
 
 export function ProfilePage({onBackup}:{onBackup:()=>void}){
-  const {profile,openExisting,startNew,closeProfile,update,remove}=useAccount()
+  const {profile,openExisting,startNew,closeProfile,update,remove,cloud,security}=useAccount()
   const [name,setName]=useState(profile?.name??''),[email,setEmail]=useState(profile?.email??''),[error,setError]=useState(''),[notice,setNotice]=useState(''),[confirming,setConfirming]=useState(false),[confirmation,setConfirmation]=useState('')
   if(!profile)return null
-  function save(event:FormEvent){event.preventDefault();setError('');setNotice('');try{update({name,email});setNotice('Profile details saved on this device.')}catch(error){setError(message(error))}}
-  function deleteProfile(event:FormEvent){event.preventDefault();setError('');if(confirmation!=='REMOVE')return;try{remove()}catch(error){setError(message(error))}}
+  async function save(event:FormEvent){event.preventDefault();setError('');setNotice('');try{await update({name,email});setNotice(cloud?'Profile updated. Check your inbox if you changed your email.':'Profile details saved on this device.')}catch(error){setError(message(error))}}
+  async function deleteProfile(event:FormEvent){event.preventDefault();setError('');if(confirmation!==(cloud?'DELETE':'REMOVE'))return;try{await remove()}catch(error){setError(message(error))}}
   const initials=profile.name.split(' ').slice(0,2).map(word=>word[0]).join('').toUpperCase()
-  return <section className="profile-page" aria-labelledby="profile-title"><div className="page-heading"><div><span className="section-kicker">YOUR WORKSPACE</span><h1 id="profile-title">Profile<span className="heading-period">.</span></h1><p className="subheading">Your details, your portfolio and this device.</p></div><span className="reporting-badge">Saved in this browser</span></div>
+  return <section className="profile-page" aria-labelledby="profile-title"><div className="page-heading"><div><span className="section-kicker">YOUR WORKSPACE</span><h1 id="profile-title">Profile<span className="heading-period">.</span></h1><p className="subheading">Your details, your portfolio and this device.</p></div><span className="reporting-badge">{cloud?'Cloud account':'Saved in this browser'}</span></div>
     <div className="profile-summary"><span className="profile-avatar" aria-hidden="true">{initials}</span><div><h2>{profile.name}</h2><p>{profile.email}</p><small>Profile created {new Date(profile.createdAt).toLocaleDateString(undefined,{dateStyle:'medium'})}</small></div></div>
     <div className="profile-page-grid"><section className="panel profile-details"><h2>Your details</h2><p>Changing these details keeps your investments, ledger and KES settings.</p><form onSubmit={save}><label className="field">Full name<input autoComplete="name" required minLength={2} maxLength={80} value={name} onChange={e=>setName(e.target.value)}/></label><label className="field">Email address<input type="email" autoComplete="email" required maxLength={254} value={email} onChange={e=>setEmail(e.target.value)}/></label><button className="button button-primary">Save profile details</button></form></section>
-    <section className="panel profile-privacy"><h2>On this device</h2><p>Investments and settings belong to this local profile and stay in this browser. They do not sync to another device.</p><p>Local profiles are not password protected. Anyone using this browser can open a saved profile.</p><button className="button button-quiet" onClick={onBackup}>Back up my portfolio</button><div className="profile-workspace-actions"><button className="text-button" onClick={openExisting}>Open another profile</button><button className="text-button" onClick={startNew}>Create another profile</button><button className="text-button" onClick={closeProfile}>Close this profile</button></div></section></div>
+    {cloud?<section className="panel profile-privacy"><h2>Cloud portfolio</h2><p>Sign in on another device to access the same investments and settings.</p><button className="button button-quiet" onClick={onBackup}>Manage portfolio backups</button><p><a href="?local=1#dashboard">Open the browser-only workspace to export a backup</a></p></section>:<section className="panel profile-privacy"><h2>On this device</h2><p>Investments and settings belong to this local profile and stay in this browser. They do not sync to another device.</p><p>Local profiles are not password protected. Anyone using this browser can open a saved profile.</p><button className="button button-quiet" onClick={onBackup}>Back up my portfolio</button><div className="profile-workspace-actions"><button className="text-button" onClick={openExisting}>Open another profile</button><button className="text-button" onClick={startNew}>Create another profile</button><button className="text-button" onClick={closeProfile}>Close this profile</button></div></section>}</div>
+    {security}
     {error&&<p className="validation-error" role="alert">{error}</p>}{notice&&<p className="success-message" role="status">{notice}</p>}
-    <section className="profile-remove"><h2>Remove this local profile</h2><p>Removes this profile, its investments and its settings from this browser. Export a backup first. Downloaded backups and other profiles are kept.</p>{!confirming?<button className="text-button profile-danger" onClick={()=>setConfirming(true)}>Remove profile…</button>:<form onSubmit={deleteProfile}><label className="field">Type REMOVE to confirm<input autoComplete="off" required pattern="REMOVE" value={confirmation} onChange={e=>setConfirmation(e.target.value)}/></label><div className="profile-remove-actions"><button className="button danger-button" disabled={confirmation!=='REMOVE'}>Remove this profile</button><button className="button button-quiet" type="button" onClick={()=>{setConfirming(false);setConfirmation('')}}>Cancel</button></div></form>}</section>
+    <section className="profile-remove"><h2>{cloud?'Delete your account':'Remove this local profile'}</h2><p>{cloud?'Permanently deletes your cloud account, investments and settings. Export a backup first. You may need to sign in again to confirm.':'Removes this profile, its investments and its settings from this browser. Export a backup first. Downloaded backups and other profiles are kept.'}</p>{!confirming?<button className="text-button profile-danger" onClick={()=>setConfirming(true)}>Remove profile…</button>:<form onSubmit={deleteProfile}><label className="field">Type {cloud?'DELETE':'REMOVE'} to confirm<input autoComplete="off" required pattern={cloud?'DELETE':'REMOVE'} value={confirmation} onChange={e=>setConfirmation(e.target.value)}/></label><div className="profile-remove-actions"><button className="button danger-button" disabled={confirmation!==(cloud?'DELETE':'REMOVE')}>{cloud?'Delete account':'Remove this profile'}</button><button className="button button-quiet" type="button" onClick={()=>{setConfirming(false);setConfirmation('')}}>Cancel</button></div></form>}</section>
   </section>
 }

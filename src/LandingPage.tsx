@@ -3,12 +3,13 @@ import type { PortfolioAction } from './lib/entryRoutes'
 
 interface LandingPageProps {
   hasProfile: boolean
+  cloud?: boolean
   onStart: (action: PortfolioAction) => void
   onLogin: () => void
 }
 
 /** Public information only. Personal storage and portfolio tools mount after entry. */
-export function LandingPage({ hasProfile, onStart, onLogin }: LandingPageProps) {
+export function LandingPage({ hasProfile, cloud = false, onStart, onLogin }: LandingPageProps) {
   return <div className="public-site" id="home">
     <a className="skip-link" href="#public-content">Skip to content</a>
     <header className="public-header">
@@ -26,7 +27,7 @@ export function LandingPage({ hasProfile, onStart, onLogin }: LandingPageProps) 
           <h1 id="public-title">Your portfolio,<br />in motion<span className="heading-period">.</span></h1>
           <p>Bring your MMFs, bonds and other income investments into one clear view. Follow your capital, understand your income and plan in Kenyan shillings.</p>
           <div className="public-hero-actions"><button type="button" className="button button-primary" onClick={() => onStart('add-investment')}><Plus size={18} aria-hidden="true" /> Add investment</button><a href="#features">Take a look around <span aria-hidden="true">↓</span></a></div>
-          <p className="public-entry-note">{hasProfile ? 'Your portfolio is ready on this device.' : 'Explore freely. Sign up or log in when you’re ready to use the tools.'}</p>
+          <p className="public-entry-note">{hasProfile ? (cloud ? 'Your cloud portfolio is ready.' : 'Your portfolio is ready on this device.') : 'Explore freely. Sign up or log in when you’re ready to use the tools.'}</p>
         </div>
         <aside className="public-field-note" aria-labelledby="field-note-title">
           <div className="public-note-top"><span>THE YIELDWISE VIEW</span><span className="public-kes-badge">KES</span></div>
@@ -52,7 +53,7 @@ export function LandingPage({ hasProfile, onStart, onLogin }: LandingPageProps) 
 
       <section className="public-how" id="how-it-works" aria-labelledby="how-title">
         <div className="public-section-heading"><div><span className="section-kicker">A SIMPLE START</span><h2 id="how-title">Look around.<br />Then make it yours.</h2></div></div>
-        <ol><li><span>01</span><h3>Sign up or log in</h3><p>Create a profile, or open the one saved on this device. Your private portfolio tools appear after this step.</p></li><li><span>02</span><h3>Add your investments</h3><p>Enter your investment details. Confirm the currency, interest terms and any KES conversion rate.</p></li><li><span>03</span><h3>Keep the story current</h3><p>Record changes as they happen. Explore future periods and compare estimates with your provider’s statement.</p></li></ol>
+        <ol><li><span>01</span><h3>Sign up or log in</h3><p>{cloud ? 'Create an account or sign in to access your portfolio.' : 'Create a profile, or open the one saved on this device. Your private portfolio tools appear after this step.'}</p></li><li><span>02</span><h3>Add your investments</h3><p>Enter your investment details. Confirm the currency, interest terms and any KES conversion rate.</p></li><li><span>03</span><h3>Keep the story current</h3><p>Record changes as they happen. Explore future periods and compare estimates with your provider’s statement.</p></li></ol>
       </section>
 
       <section className="public-estimates" id="estimates" aria-labelledby="estimates-title">
@@ -65,7 +66,7 @@ export function LandingPage({ hasProfile, onStart, onLogin }: LandingPageProps) 
         </div>
       </section>
 
-      <section className="public-privacy" id="privacy"><ShieldCheck size={23} aria-hidden="true" /><div><h2>Know where your information lives.</h2><p>This version saves profiles and investments only in this browser. Profiles have no password protection or cloud sync. Export a JSON backup to keep a copy of your portfolio.</p></div></section>
+      <section className="public-privacy" id="privacy"><ShieldCheck size={23} aria-hidden="true" /><div><h2>Know where your information lives.</h2><p>{cloud ? 'Your investments and settings sync to your account. Export a JSON backup to keep a copy of your portfolio.' : 'This version saves profiles and investments only in this browser. Profiles have no password protection or cloud sync. Export a JSON backup to keep a copy of your portfolio.'}</p></div></section>
       <section className="public-final-cta"><span className="section-kicker">YOUR NEXT CHAPTER</span><h2>Make room for a<br />clearer financial picture.</h2><button type="button" className="button button-primary" onClick={() => onStart('dashboard')}>{hasProfile ? 'Open portfolio' : 'Sign up'} <ArrowRight size={17} aria-hidden="true" /></button>{!hasProfile && <p>Already have a profile? <button type="button" className="text-button" onClick={onLogin}>Log in</button></p>}</section>
     </main>
     <footer className="public-footer"><span>© 2026 Yieldwise prototype</span><span>Estimates, not guarantees. Not financial advice.</span></footer>

@@ -9,6 +9,7 @@ import { defaultPreferences, loadPreferences, savePreferences, type Preferences 
 import { currencyCodes, kesRate, withKesRate } from './lib/currency'
 import { navigationSection } from './lib/uiNavigation'
 import { ContactPage } from './ContactPage'
+import type { PortfolioCommand } from './lib/cloudPortfolio'
 import { newContactDraft, type ContactDraft } from './lib/contact'
 
 const blank: InvestmentInput = { provider: '', name: '', type: 'MMF', principal: 0, currency: 'KES', annualRate: Number.NaN, startDate: dateKey(new Date()), maturityDate: null, frequency: 'unknown', interestMode: 'unknown', yieldBasis: 'gross', taxRate: 0, statementValue: null, couponMonths: [] }
@@ -26,7 +27,7 @@ export function buildInvestmentCsv(items:Investment[],asOf=new Date()):string {
 }
 
 function App() {
-  const { profile, openExisting, closeProfile, pendingAction, completeEntryAction } = useAccount()
+  const { profile, openExisting, closeProfile, pendingAction, completeEntryAction, cloud } = useAccount()
   const contactDraft = useRef<ContactDraft>(newContactDraft())
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false)
   const [activeSection, setActiveSection] = useState(()=>navigationSection(typeof window!=='undefined'?window.location.hash:''))
@@ -60,6 +61,9 @@ function App() {
   },[])
   const projectionRef = useRef<HTMLElement>(null)
   const [items, setItems] = useState<Investment[]>([])
+  const cloudVersion = useRef<number|null>(null)
+  const cloudWriting = useRef(false)
+  const cloudReading = useRef(false)
   const [busy, setBusy] = useState(true)
   useEffect(()=>{if(!projectionRef.current||matchMedia("(prefers-reduced-motion: reduce)").matches)return;const observer=new IntersectionObserver(entries=>{if(entries.some(e=>e.isIntersecting)){projectionRef.current?.classList.add("projection-reveal");observer.disconnect()}},{threshold:0.3});observer.observe(projectionRef.current);return()=>observer.disconnect()},[busy,items.length])
   const [error, setError] = useState('')
@@ -67,7 +71,7 @@ function App() {
   const [editing, setEditing] = useState<Investment | null>(null)
   const [months, setMonths] = useState(12)
   const currency = 'KES'
-  const [preferences,setPreferences]=useState<Preferences>(()=>{try{return loadPreferences()}catch{return {...defaultPreferences,rates:{}}}})
+  const [preferences,setPreferences]=useState<Preferences>(()=>{try{return cloud?{...defaultPreferences,rates:{}}:loadPreferences()}catch{return {...defaultPreferences,rates:{}}}})
   const [toast, setToast] = useState('')
   const [undoItem, setUndoItem] = useState<Investment | null>(null)
   const [eventFor, setEventFor] = useState<Investment | null>(null)
@@ -76,16 +80,48 @@ function App() {
   const [filterBy, setFilterBy] = useState<'all'|'active'|'scheduled'|'matured'|'closed'>('all')
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null)
 
-  const refresh = useCallback(() => {
-    try { setItems(loadInvestments()); setPreferences(loadPreferences()); setError('') }
-    catch (e) { setError(e instanceof Error ? e.message : 'Could not load your investments.') }
-    finally { setBusy(false) }
-  }, [])
+  const refresh = useCallback(async () => {
+    if (cloudWriting.current || cloudReading.current) return
+    if (cloud) cloudReading.current = true
+    setBusy(true)
+    try {
+      if (cloud) {
+        const result = await cloud.read()
+        cloudVersion.current = result.version
+        setItems(result.items); setPreferences(result.preferences)
+      } else {
+        setItems(loadInvestments()); setPreferences(loadPreferences())
+      }
+      setError('')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not load your investments.')
+    } finally {
+      cloudReading.current = false
+      setBusy(false)
+    }
+  }, [cloud])
 
+  async function writeCloud(command: PortfolioCommand) {
+    if (cloudReading.current || !cloud || cloudVersion.current === null) throw Error('Reload your portfolio before making changes.')
+    if (cloudWriting.current) throw Error('Wait for the current save to finish.')
+    cloudWriting.current = true
+    try {
+      const result = await cloud.write(cloudVersion.current, command)
+      cloudVersion.current = result.version
+      setItems(result.items); setPreferences(result.preferences); setError('')
+    } finally {
+      cloudWriting.current = false
+    }
+  }
+
+  async function reportWrite(operation: () => Promise<void>) {
+    try { await operation() }
+    catch (e) { setError(e instanceof Error ? e.message : 'Could not save your changes.') }
+  }
   useEffect(() => { refresh() }, [refresh])
 
   useEffect(()=>{
-    if(busy||!pendingAction)return
+    if(busy||!pendingAction||(cloud&&cloudVersion.current===null))return
     if(pendingAction==='add-investment'){
       setEditing(null)
       setModal(true)
@@ -94,7 +130,7 @@ function App() {
     else if(pendingAction==='profile')navigateTo('profile')
     else if(pendingAction==='contact')navigateTo('contact')
     completeEntryAction()
-  },[busy,pendingAction,completeEntryAction])
+  },[busy,pendingAction,completeEntryAction,cloud])
 
   const visible = items
   const now = new Date()
@@ -156,6 +192,13 @@ function App() {
   async function save(input: InvestmentInput, id?: string, exchangeRate?:number) {
     setError('')
     const nextPreferences={...preferences,baseCurrency:'KES',rates:input.currency==='KES'?preferences.rates:withKesRate(preferences.rates,input.currency,exchangeRate??NaN)}
+    if (cloud) {
+      const holdingId = id ?? crypto.randomUUID()
+      await writeCloud({ action: id ? 'edit' : 'create', id: holdingId, investment: { ...input, id: holdingId }, exchangeRate })
+      setModal(false); setEditing(null)
+      announce(id ? 'Investment updated' : 'Investment added')
+      return
+    }
     savePreferences(nextPreferences)
     let next:Investment[]
     try{next=saveInvestment(input,id)}catch(e){savePreferences(preferences);throw e}
@@ -164,7 +207,7 @@ function App() {
     announce(id ? 'Investment updated' : 'Investment added')
   }
   async function remove(item: Investment) {
-    try { setUndoItem(item); setItems(deleteInvestment(item.id)); setToast(`Deleted ${item.name}`); window.setTimeout(() => { setToast(''); setUndoItem(null) }, 6000) }
+    try { if(cloud)await writeCloud({action:'delete',id:item.id});else setItems(deleteInvestment(item.id));setUndoItem(item); setToast(`Deleted ${item.name}`); window.setTimeout(() => { setToast(''); setUndoItem(null) }, 6000) }
     catch (e) { setError(e instanceof Error ? e.message : 'Could not delete investment.') }
   }
   function announce(message: string) { setToast(message); window.setTimeout(() => setToast(''), 2800) }
@@ -172,7 +215,7 @@ function App() {
   function openAdd() { setEditing(null); setModal(true) }
   function openEdit(item: Investment) { setEditing(item); setModal(true) }
   function recordEvent(item: Investment, kind?:'deposit'|'withdrawal'|'rate_change') { setEventFor(item);setEventKind(kind) }
-  function undoDelete() { if(undoItem){setItems(restoreInvestment(undoItem));setUndoItem(null);setToast('Investment restored');window.setTimeout(()=>setToast(''),2500)} }
+  function undoDelete() { const item=undoItem;if(!item)return;void reportWrite(async()=>{if(cloud)await writeCloud({action:'restore',id:item.id});else setItems(restoreInvestment(item));setUndoItem(null);announce('Investment restored')}) }
   function exportCsv() {
     const csv = buildInvestmentCsv(items)
     const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); link.download = 'yieldwise-investments.csv'; link.click(); URL.revokeObjectURL(link.href)
@@ -195,23 +238,23 @@ function App() {
         <a href="#contact" className={activeSection==='contact'?'active':''} aria-current={activeSection==='contact'?'page':undefined} onClick={e=>{e.preventDefault();navigateTo('contact')}}><FileText size={18} aria-hidden="true"/><span>Contact us & feedback</span></a>
       </nav>
       <div className="sidebar-bottom">
-        <button type="button" className="sidebar-account" onClick={openExisting}><LockKeyhole size={18}/>Switch profile<ArrowRight size={15}/></button>
+        <button type="button" className="sidebar-account" onClick={openExisting}><LockKeyhole size={18}/>{cloud?'Switch account':'Switch profile'}<ArrowRight size={15}/></button>
         <button type="button" className="sidebar-account" onClick={closeProfile}><ArrowRight size={18} aria-hidden="true"/><span>Log out</span></button>
-        <div className="sidebar-status"><span className="status-dot"/>{profile?.name??'Local portfolio'}<small>Stored in this browser</small></div>
+        <div className="sidebar-status"><span className="status-dot"/>{profile?.name??'Local portfolio'}<small>{cloud?'Cloud account':'Stored in this browser'}</small></div>
       </div>
     </aside>
 
     <main id={pageId} className="main-content">
       {activeSection==='profile'?<ProfilePage onBackup={()=>navigateTo('portfolio-settings')}/>:activeSection==='contact'?<ContactPage initialDraft={contactDraft.current} onDraftChange={draft=>{contactDraft.current=draft}}/>:<>
       <div className="page-heading"><div><h1>Your portfolio, in motion<span className="heading-period">.</span></h1><p className="subheading">See how dates, cash flows and stated terms shape what your investments may earn.</p></div>
-        <div className="heading-actions">{hasData && <button className="button button-quiet" onClick={exportCsv}><ArrowDownToLine size={16} /> Export</button>}<button className="button button-primary" onClick={openAdd}><Plus size={17} /> Add investment</button></div>
+        <div className="heading-actions">{hasData && <button className="button button-quiet" onClick={exportCsv}><ArrowDownToLine size={16} /> Export</button>}<button className="button button-primary" disabled={Boolean(cloud&&cloudVersion.current===null)} onClick={openAdd}><Plus size={17} /> Add investment</button></div>
       </div>
-      {error && <div className="alert error-alert" role="alert"><CircleHelp size={18} />{error}<button aria-label="Dismiss error" onClick={() => setError('')}><X size={16} /></button></div>}
-      <div className="demo-banner"><ShieldCheck size={17} /><span><strong>{profile?profile.name+'’s portfolio.':'Local portfolio.'}</strong> Records stay in this browser{profile?" under this profile.":" on this device."} Export JSON to back up your data.</span></div>
+      {error && <div className="alert error-alert" role="alert"><CircleHelp size={18} />{error}{cloud&&<button className="text-button" type="button" onClick={()=>void refresh()}>Reload portfolio</button>}<button aria-label="Dismiss error" onClick={() => setError('')}><X size={16} /></button></div>}
+      <div className="demo-banner"><ShieldCheck size={17} /><span><strong>{profile?profile.name+'’s portfolio.':'Local portfolio.'}</strong> {cloud?'Records sync to your cloud account.':profile?'Records stay in this browser under this profile.':'Records stay in this browser on this device.'} Export JSON to back up your data.</span></div>
       {visible.some(x=>investmentState(x)==='Matured')&&<div className="maturity-banner" role="status"><CalendarDays size={17}/><div><strong>Matured: renew or close?</strong><span>{visible.filter(x=>investmentState(x)==='Matured').map(x=>x.name).join(', ')} reached maturity. Review provider options; close records from their row or edit dates/terms to track a renewal.</span></div></div>}
 
-      {!busy&&<PortfolioTools items={items} onImport={setItems} preferences={preferences} onPreferencesChange={setPreferences}/>}
-      {busy ? <div className="skeleton-panel" aria-label="Loading investments"><div /><div /><div /></div> : !hasData ? <EmptyState onAdd={openAdd} /> : <>
+      {!busy&&(!cloud||cloudVersion.current!==null)&&<PortfolioTools items={items} onImport={setItems} preferences={preferences} onPreferencesChange={setPreferences} cloudWrite={cloud?writeCloud:undefined}/>}
+      {busy ? <div className="skeleton-panel" aria-label="Loading investments"><div /><div /><div /></div> : cloud&&cloudVersion.current===null ? <button type="button" className="button button-quiet" onClick={()=>void refresh()}>Retry loading investments</button> : !hasData ? <EmptyState onAdd={openAdd} /> : <>
         <div className="metric-grid">
           <Metric icon={<WalletCards size={17} />} label="Principal currently invested" value={totalsBlocked?'Set conversion rates':formatMoney(principal, currency)} detail={`${eligible.length} active or matured holdings · ${currency}`} />
           <Metric icon={<Landmark size={17} />} label="Estimated current value" value={totalsBlocked?'Set conversion rates':currentMetric} detail={<>{unknownTerms?'Range reflects unknown interest treatment':'Includes entered dates and terms'} <span className="tiny-info" title="Estimates are scenarios, not guarantees">ⓘ</span></>} />
@@ -237,8 +280,8 @@ function App() {
           <div className="table-tools"><label>State <select value={filterBy} onChange={e=>setFilterBy(e.target.value as typeof filterBy)}><option value="all">All states</option><option value="active">Active</option><option value="scheduled">Scheduled</option><option value="matured">Matured</option><option value="closed">Closed</option></select></label><label>Sort by <select value={sortBy} onChange={e=>setSortBy(e.target.value as typeof sortBy)}><option value="name">Name</option><option value="principal">Principal</option><option value="rate">Yield</option><option value="earned">Earnings</option><option value="maturity">Maturity</option></select></label></div>
           {filtered.length === 0 ? <div className="currency-empty">No investments match this view.</div> : <>
             <p className="table-scroll-hint">Scroll the table sideways to see all columns.</p>
-            <div className="investment-table-wrap" role="region" aria-label="Investment details table. Scroll horizontally for all columns." tabIndex={0}><table className="investment-table"><thead><tr><th scope="col">Investment</th><th scope="col">Current principal</th><th scope="col">Annual rate</th><th scope="col">Earned to date*</th><th scope="col">Next payout / maturity</th><th scope="col">State</th><th scope="col">Reconcile</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead><tbody>{filtered.map(item => <InvestmentRow key={item.id} item={item} onEdit={() => openEdit(item)} onDelete={() => void remove(item)} onEvent={() => recordEvent(item, item.type==="MMF"?"rate_change":undefined)} onCloseInvestment={()=>setItems(setInvestmentStatus(item.id,'closed'))} onReconcile={v=>{const next=saveInvestment({...item,statementValue:v},item.id);setItems(next)}} />)}</tbody></table></div>
-            <div className="mobile-investments" role="table" aria-label="Investments">{filtered.map(item => <InvestmentCard key={item.id} item={item} onEdit={() => openEdit(item)} onDelete={() => void remove(item)} onEvent={()=>recordEvent(item,item.type==="MMF"?"rate_change":undefined)} onReconcile={v=>{const next=saveInvestment({...item,statementValue:v},item.id);setItems(next)}} />)}</div>
+            <div className="investment-table-wrap" role="region" aria-label="Investment details table. Scroll horizontally for all columns." tabIndex={0}><table className="investment-table"><thead><tr><th scope="col">Investment</th><th scope="col">Current principal</th><th scope="col">Annual rate</th><th scope="col">Earned to date*</th><th scope="col">Next payout / maturity</th><th scope="col">State</th><th scope="col">Reconcile</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead><tbody>{filtered.map(item => <InvestmentRow key={item.id} item={item} onEdit={() => openEdit(item)} onDelete={() => void remove(item)} onEvent={() => recordEvent(item, item.type==="MMF"?"rate_change":undefined)} onCloseInvestment={()=>void reportWrite(async()=>{if(cloud)await writeCloud({action:'close',id:item.id});else setItems(setInvestmentStatus(item.id,'closed'))})} onReconcile={v=>void reportWrite(async()=>{if(v===item.statementValue)return;if(cloud)await writeCloud({action:'reconcile',id:item.id,value:v});else setItems(saveInvestment({...item,statementValue:v},item.id))})} />)}</tbody></table></div>
+            <div className="mobile-investments" role="table" aria-label="Investments">{filtered.map(item => <InvestmentCard key={item.id} item={item} onEdit={() => openEdit(item)} onDelete={() => void remove(item)} onEvent={()=>recordEvent(item,item.type==="MMF"?"rate_change":undefined)} onReconcile={v=>void reportWrite(async()=>{if(v===item.statementValue)return;if(cloud)await writeCloud({action:'reconcile',id:item.id,value:v});else setItems(saveInvestment({...item,statementValue:v},item.id))})} />)}</div>
             <div className="table-foot"><span>* Earnings since the start date, after your entered tax assumption.</span><a href="#formula-details" onClick={e=>{e.preventDefault();openMethodology()}}>Calculation notes <ArrowRight size={13} /></a></div>
           </>}
         </section>
@@ -251,7 +294,7 @@ function App() {
       <footer className="footer"><span>© 2026 Yieldwise prototype</span><span>Simple by design <span className="footer-dot">·</span> Private by default</span></footer>
     </main>
     {modal && <InvestmentModal key={editing?.id ?? 'new'} initial={editing} existingItems={items} preferences={preferences} onClose={() => { setModal(false); setEditing(null) }} onRecordEvent={(item,kind)=>{setModal(false);recordEvent(item,kind)}} onSave={save} />}
-    {eventFor && <EventModal key={`${eventFor.id}-${eventKind??'any'}`} item={eventFor} initialKind={eventKind} onClose={()=>{setEventFor(null);setEventKind(undefined)}} onSave={(event)=>{const updated=appendEvent(eventFor.id,event);setItems(updated);setEventFor(null);setEventKind(undefined);announce('Ledger event recorded')}} />}
+    {eventFor && <EventModal key={`${eventFor.id}-${eventKind??'any'}`} item={eventFor} initialKind={eventKind} onClose={()=>{setEventFor(null);setEventKind(undefined)}} onSave={async(event)=>{if(cloud)await writeCloud({action:'event',id:eventFor.id,event});else setItems(appendEvent(eventFor.id,event));setEventFor(null);setEventKind(undefined);announce('Ledger event recorded')}} />}
     {toast && <div className="toast" role="status"><Check size={16} />{toast}{undoItem&&<button onClick={undoDelete}>Undo</button>}</div>}
   </div>
 }
@@ -386,7 +429,7 @@ function InvestmentModal({ initial, existingItems, preferences, onClose, onRecor
 function RadioCard({ selected, title, description, onClick }: { selected: boolean; title: string; description: string; onClick: () => void }) {
   return <button type="button" className={`radio-card ${selected ? 'chosen' : ''}`} onClick={onClick} aria-pressed={selected}><span className="radio-indicator">{selected && <span />}</span><strong>{title}</strong><small>{description}</small></button>
 }
-function EventModal({item,initialKind,onClose,onSave}:{item:Investment;initialKind?:'deposit'|'withdrawal'|'rate_change';onClose:()=>void;onSave:(event:{id:string;date:string;kind:'deposit'|'withdrawal'|'rate_change';amount?:number;annualRate?:number})=>void}){
+function EventModal({item,initialKind,onClose,onSave}:{item:Investment;initialKind?:'deposit'|'withdrawal'|'rate_change';onClose:()=>void;onSave:(event:{id:string;date:string;kind:'deposit'|'withdrawal'|'rate_change';amount?:number;annualRate?:number})=>void|Promise<void>}){
  const dialogRef=useRef<HTMLElement>(null)
  useModalFocus(dialogRef,onClose)
  const [kind,setKind]=useState<'deposit'|'withdrawal'|'rate_change'>(initialKind??'deposit'),[date,setDate]=useState(dateKey(new Date())),[amount,setAmount]=useState(''),[rate,setRate]=useState(''),[error,setError]=useState('')
@@ -395,8 +438,8 @@ function EventModal({item,initialKind,onClose,onSave}:{item:Investment;initialKi
  const overdraft=validCashEvent&&kind==='withdrawal'&&draftAmount>beforePrincipal
  const previewPrincipal=validCashEvent&&!overdraft?estimate({...item,events:[...item.events,{id:'draft-cash-event',date,kind,amount:draftAmount}]},effectiveAt).principal:null
 
- function submit(e:FormEvent){e.preventDefault();const n=Number(kind==='rate_change'?rate:amount);if(!date||!Number.isFinite(n)||(kind==='rate_change'?n<0:n<=0)){setError(kind==='rate_change'?'Enter a valid annual rate.':'Enter a positive amount.');return}try{onSave({id:crypto.randomUUID(),date,kind,...(kind==='rate_change'?{annualRate:n}:{amount:n})})}catch(e){setError(e instanceof Error?e.message:'Could not record event.')}}
- return <div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)onClose()}}><section ref={dialogRef} className="modal-card event-modal" tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="event-title"><div className="modal-header"><div><div className="section-kicker"><ArrowDownUp size={14}/> EVENT LEDGER</div><h2 id="event-title">Record an investment event</h2><p>{item.name} · current principal {formatMoney(estimate(item,new Date()).principal,item.currency)}</p></div><button className="icon-button" onClick={onClose} aria-label="Close"><X size={18}/></button></div><form className="investment-form" onSubmit={submit}><label className="field"><span>Event type</span><span className="select-wrap"><select value={kind} onChange={e=>setKind(e.target.value as typeof kind)}><option value="deposit">Top-up / deposit</option><option value="withdrawal">Withdrawal</option><option value="rate_change">Rate change</option></select><ChevronDown size={15}/></span></label><label className="field"><span>Effective date</span><input type="date" min={item.startDate} max={item.maturityDate??undefined} value={date} onChange={e=>setDate(e.target.value)} required/></label>{kind==='rate_change'?<label className="field"><span>New annual rate</span><div className="input-with-suffix"><input type="number" min="0" max="1000" step="0.01" value={rate} onChange={e=>setRate(e.target.value)} placeholder="5.25"/><span>%</span></div></label>:<label className="field"><span>Amount ({item.currency})</span><input type="number" min="0.01" step="0.01" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="Amount"/></label>}{previewPrincipal!==null&&<div className="form-preview" aria-live="polite"><div><strong>Principal after this event: {formatMoney(previewPrincipal,item.currency)}</strong><br/><span>{formatMoney(beforePrincipal,item.currency)} {kind==='deposit'?'+':'−'} {formatMoney(draftAmount,item.currency)} · effective {date}. {date>dateKey(new Date())?'This is future-dated; today’s principal will change on that date.':'The investment row and portfolio total update when you record the event.'}</span></div></div>}{overdraft&&<p className="validation-error" role="alert">This withdrawal exceeds the principal available on its effective date.</p>}{kind==='rate_change'&&<p className="settings-note">Yield changes affect earnings; they do not change invested principal.</p>}{error&&<p role="alert" className="validation-error">{error}</p>}<div className="ledger-history"><strong>Event history</strong>{item.events.length?<div className="ledger-table-wrap"><table><thead><tr><th>Date</th><th>Event</th><th>Value</th></tr></thead><tbody>{[...item.events].sort((a,b)=>b.date.localeCompare(a.date)).map(x=><tr key={x.id}><td>{x.date}</td><td>{x.kind==='rate_change'?'Rate change':x.kind==='deposit'?'Top-up':'Withdrawal'}</td><td>{x.kind==='rate_change'?`${x.annualRate}%`:formatMoney(x.amount??0,item.currency)}</td></tr>)}</tbody></table></div>:<span>No ledger events yet.</span>}</div><div className="modal-footer"><span>Accrual is recalculated in date order.</span><div><button type="button" className="button button-quiet" onClick={onClose}>Cancel</button><button className="button button-primary" type="submit">Record event</button></div></div></form></section></div>
+ async function submit(e:FormEvent){e.preventDefault();const n=Number(kind==='rate_change'?rate:amount);if(!date||!Number.isFinite(n)||(kind==='rate_change'?n<0:n<=0)){setError(kind==='rate_change'?'Enter a valid annual rate.':'Enter a positive amount.');return}try{await onSave({id:crypto.randomUUID(),date,kind,...(kind==='rate_change'?{annualRate:n}:{amount:n})})}catch(e){setError(e instanceof Error?e.message:'Could not record event.')}}
+ return <div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)onClose()}}><section ref={dialogRef} className="modal-card event-modal" tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="event-title"><div className="modal-header"><div><div className="section-kicker"><ArrowDownUp size={14}/> EVENT LEDGER</div><h2 id="event-title">Record an investment event</h2><p>{item.name} · current principal {formatMoney(estimate(item,new Date()).principal,item.currency)}</p></div><button className="icon-button" onClick={onClose} aria-label="Close"><X size={18}/></button></div><form className="investment-form" onSubmit={e=>void submit(e)}><label className="field"><span>Event type</span><span className="select-wrap"><select value={kind} onChange={e=>setKind(e.target.value as typeof kind)}><option value="deposit">Top-up / deposit</option><option value="withdrawal">Withdrawal</option><option value="rate_change">Rate change</option></select><ChevronDown size={15}/></span></label><label className="field"><span>Effective date</span><input type="date" min={item.startDate} max={item.maturityDate??undefined} value={date} onChange={e=>setDate(e.target.value)} required/></label>{kind==='rate_change'?<label className="field"><span>New annual rate</span><div className="input-with-suffix"><input type="number" min="0" max="1000" step="0.01" value={rate} onChange={e=>setRate(e.target.value)} placeholder="5.25"/><span>%</span></div></label>:<label className="field"><span>Amount ({item.currency})</span><input type="number" min="0.01" step="0.01" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="Amount"/></label>}{previewPrincipal!==null&&<div className="form-preview" aria-live="polite"><div><strong>Principal after this event: {formatMoney(previewPrincipal,item.currency)}</strong><br/><span>{formatMoney(beforePrincipal,item.currency)} {kind==='deposit'?'+':'−'} {formatMoney(draftAmount,item.currency)} · effective {date}. {date>dateKey(new Date())?'This is future-dated; today’s principal will change on that date.':'The investment row and portfolio total update when you record the event.'}</span></div></div>}{overdraft&&<p className="validation-error" role="alert">This withdrawal exceeds the principal available on its effective date.</p>}{kind==='rate_change'&&<p className="settings-note">Yield changes affect earnings; they do not change invested principal.</p>}{error&&<p role="alert" className="validation-error">{error}</p>}<div className="ledger-history"><strong>Event history</strong>{item.events.length?<div className="ledger-table-wrap"><table><thead><tr><th>Date</th><th>Event</th><th>Value</th></tr></thead><tbody>{[...item.events].sort((a,b)=>b.date.localeCompare(a.date)).map(x=><tr key={x.id}><td>{x.date}</td><td>{x.kind==='rate_change'?'Rate change':x.kind==='deposit'?'Top-up':'Withdrawal'}</td><td>{x.kind==='rate_change'?`${x.annualRate}%`:formatMoney(x.amount??0,item.currency)}</td></tr>)}</tbody></table></div>:<span>No ledger events yet.</span>}</div><div className="modal-footer"><span>Accrual is recalculated in date order.</span><div><button type="button" className="button button-quiet" onClick={onClose}>Cancel</button><button className="button button-primary" type="submit">Record event</button></div></div></form></section></div>
 }
 export default App
 
