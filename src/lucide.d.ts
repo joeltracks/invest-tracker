@@ -12,9 +12,11 @@ declare module 'lucide-react' {
   export const ChevronDown: Icon
   export const CircleHelp: Icon
   export const FileText: Icon
+  export const Instagram: Icon
   export const Landmark: Icon
   export const LockKeyhole: Icon
   export const LogOut: Icon
+  export const Mail: Icon
   export const Pencil: Icon
   export const Plus: Icon
   export const ShieldCheck: Icon

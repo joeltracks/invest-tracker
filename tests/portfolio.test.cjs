@@ -272,6 +272,8 @@ test('an unconfigured contact page offers copying without claiming email deliver
   const {ContactPage}=contactUi();
   const html=renderToStaticMarkup(React.createElement(ContactPage,{initialDraft:contactDraft(),onDraftChange:()=>{},recipient:''}));
   assert.ok(html.includes('This button copies your feedback'));assert.ok(html.includes('Send feedback'));assert.ok(!html.includes('VITE_'));assert.ok(html.includes('Your feedback'));
+  assert.ok(html.includes('href="https://www.instagram.com/prodbyjo_el/"'));
+  assert.ok(html.includes('href="mailto:joeltracks11141@outlook.com"'));
   const configured=renderToStaticMarkup(React.createElement(ContactPage,{initialDraft:contactDraft(),onDraftChange:()=>{},recipient:'team@example.test'}));
   assert.ok(configured.includes('Send feedback'));assert.ok(!configured.includes('Copy note'));assert.ok(configured.includes('Send your feedback from your email app'));
 });

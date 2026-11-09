@@ -1,4 +1,5 @@
 import { useRef, useState, type FormEvent } from 'react'
+import { Instagram, Mail } from 'lucide-react'
 import { contactEmail } from './lib/contactConfig'
 import { buildContactMailto, contactMessageLimit, contactRecipient, contactTopics, ContactDraftError, formatContactNote, type ContactDraft } from './lib/contact'
 
@@ -70,6 +71,17 @@ export function ContactPage({ initialDraft, onDraftChange, recipient = contactEm
           <p className="subheading">Your feedback helps us fix problems and improve Yieldwise. It takes about a minute.</p>
         </div>
       </div>
+
+      <nav className="contact-direct-links" aria-label="Direct contact">
+        <a className="button button-quiet" href="https://www.instagram.com/prodbyjo_el/" target="_blank" rel="noopener noreferrer">
+          <Instagram size={18} aria-hidden="true" />
+          Instagram
+        </a>
+        <a className="button button-quiet" href="mailto:joeltracks11141@outlook.com">
+          <Mail size={18} aria-hidden="true" />
+          Email
+        </a>
+      </nav>
 
       <section className="panel contact-panel" aria-label="Feedback form">
         <form onSubmit={event => void submit(event)} aria-label="Contact us and feedback">

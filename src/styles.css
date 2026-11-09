@@ -4063,6 +4063,16 @@ a {
   max-width: 46rem;
   margin-inline: auto;
 }
+.contact-direct-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8);
+  margin-bottom: var(--space-16);
+}
+.contact-direct-links a {
+  min-height: 44px;
+  text-decoration: none;
+}
 .contact-panel {
   padding: clamp(var(--space-16), 4vw, var(--space-32));
 }
