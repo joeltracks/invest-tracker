@@ -9,14 +9,20 @@
     "preview": "vite preview",
     "typecheck": "tsc -b --pretty",
     "test": "node tests/portfolio.test.cjs",
-    "test:theme": "node tests/theme.test.cjs"
+    "test:theme": "node tests/theme.test.cjs",
+    "prepare:ocr": "node scripts/prepare-ocr.mjs",
+    "predev": "npm run prepare:ocr",
+    "prebuild": "npm run prepare:ocr",
+    "test:ocr": "node tests/ocr.test.cjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.118.0",
+    "@tesseract.js-data/eng": "1.0.0",
     "lucide-react": "^0.468.0",
     "pdfjs-dist": "^4.10.38",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "tesseract.js": "6.0.1"
   },
   "devDependencies": {
     "@types/react": "^18.3.12",

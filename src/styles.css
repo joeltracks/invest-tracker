@@ -4313,3 +4313,5 @@ a {
     gap: var(--space-4);
   }
 }
+
+.statement-extracted-text { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 16rem; overflow: auto; color: var(--ink); font-size: var(--text-sm); }

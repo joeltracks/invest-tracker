@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from 'react'
-import { Activity, ArrowDownToLine, ArrowRight, BadgeCheck, CalendarDays, ChartNoAxesCombined, Check, ChevronDown, CircleHelp, FileText, Landmark, LockKeyhole, Pencil, Plus, ShieldCheck, Sparkles, Trash2, TrendingUp, Upload, WalletCards, X, ArrowDownUp } from 'lucide-react'
+import { Activity, ArrowDownToLine, ArrowRight, CalendarDays, ChartNoAxesCombined, Check, ChevronDown, CircleHelp, FileText, Landmark, LockKeyhole, Pencil, Plus, ShieldCheck, Sparkles, Trash2, TrendingUp, Upload, WalletCards, X, ArrowDownUp } from 'lucide-react'
 import { addMonths, estimate, estimateLabel, formatMoney, investmentState, nextPayout, currentYield, dateKey, hasUnknownTerms, netValue, valueRange, incomeRange, scheduledPayouts, taxFactor } from './lib/calculations'
 import { appendEvent, deleteInvestment, loadInvestments, restoreInvestment, saveInvestment, setInvestmentStatus } from './lib/localStore'
 import { parsePdf } from './lib/pdfImport'
@@ -317,6 +317,10 @@ function InvestmentModal({ initial, initialTab='manual', existingItems, preferen
   const [tab, setTab] = useState<InvestmentTab>(initialTab)
   const [parseStatus, setParseStatus] = useState('')
   const [parseError, setParseError] = useState('')
+  const [parsing,setParsing]=useState(false),[forceOcr,setForceOcr]=useState(false)
+  const [extractedText,setExtractedText]=useState(''),[ocrWarnings,setOcrWarnings]=useState<string[]>([])
+  const parseController=useRef<AbortController|null>(null)
+  useEffect(()=>()=>{parseController.current?.abort();parseController.current=null},[])
   const [saving, setSaving] = useState(false)
   const [attempted, setAttempted] = useState(false)
   const [statementLoaded, setStatementLoaded] = useState(false)
@@ -354,9 +358,15 @@ function InvestmentModal({ initial, initialTab='manual', existingItems, preferen
   }
   async function handleFile(file?: File) {
     if (!file) return
+    parseController.current?.abort()
+    const controller=new AbortController();parseController.current=controller
+    setParsing(true);setCandidates([]);setCandidateIndex(0);setExtractedText('');setOcrWarnings([])
+    setForm({...blank,currency:'',startDate:''})
     setParseError(''); setParseStatus('Reading PDF locally…'); setFileName(file.name); setStatementLoaded(false)
     try {
-      const result = await parsePdf(file)
+      const result = await parsePdf(file,{signal:controller.signal,forceOcr,onProgress:message=>{if(parseController.current===controller&&!controller.signal.aborted)setParseStatus(message)}})
+      if(parseController.current!==controller||controller.signal.aborted)return
+      setExtractedText(result.text);setOcrWarnings(result.warnings)
       const list=result.candidates?.length?result.candidates:[result.fields];setCandidates(list);setCandidateIndex(0)
       const fields = list[0]
       setForm(prev => ({ ...prev,
@@ -373,11 +383,14 @@ function InvestmentModal({ initial, initialTab='manual', existingItems, preferen
       const count = Object.entries(fields).filter(([key,value])=>key!=='currencyStatus'&&Boolean(value)).length
       setStatementLoaded(true)
       setParseStatus(count ? `Found ${list.length} possible investment${list.length===1?'':'s'} and ${count} fields for this one. Review each before saving.` : 'Readable text found, but no familiar fields were identified. Fill in details manually.')
-    } catch (e) { setParseStatus(''); setParseError(e instanceof Error ? e.message : 'Could not read this PDF.') }
+    } catch (e) { if(parseController.current===controller){setParseStatus('');setParseError(e instanceof Error ? e.message : 'Could not read this PDF. Try again or enter details manually.')} }
+    finally {if(parseController.current===controller){setParsing(false);parseController.current=null}}
   }
+  function cancelReading(){parseController.current?.abort()}
 
   async function submit(event: FormEvent) {
     event.preventDefault(); setAttempted(true)
+    if(parsing)return
     if(!currencyCodes.includes(form.currency)){setParseError('Confirm the investment currency before saving.');return}
     if(form.currency!=='KES'&&(conversionRate===null||!Number.isFinite(form.principal*conversionRate))){setParseError('Enter a positive, finite conversion rate to KES before saving this investment.');return}
     if (!form.provider.trim() || !form.name.trim() || !Number.isFinite(form.principal) || !(form.principal > 0) || !Number.isFinite(form.annualRate) || form.annualRate < 0 || !form.startDate || (form.maturityDate && form.maturityDate < form.startDate)) return
@@ -385,7 +398,7 @@ function InvestmentModal({ initial, initialTab='manual', existingItems, preferen
     try {
       const keep=tab==='statement'&&!initial&&candidateIndex<candidates.length-1
       await onSave({ ...form, provider: form.provider.trim(), name: form.name.trim(), maturityDate: form.maturityDate || null }, initial?.id,keep,conversionRate??undefined)
-      if(keep){const nextIndex=candidateIndex+1,fields=candidates[nextIndex];setCandidateIndex(nextIndex);setForm(prev=>({...blank,currency:fields.currency??'',provider:fields.provider??'',name:fields.name??'',type:(fields.type as InvestmentType|undefined)??'Other',principal:fields.principal?Number(fields.principal.replaceAll(',','')):0,annualRate:fields.annualRate?Number(fields.annualRate):0,startDate:fields.startDate??prev.startDate,maturityDate:fields.maturityDate??null,frequency:fields.frequency?normalizeFrequency(fields.frequency):'unknown'}));setParseError('');setParseStatus(`Saved investment ${nextIndex} of ${candidates.length}. Review the next candidate, its currency and its KES conversion rate.`)}
+      if(keep){const nextIndex=candidateIndex+1,fields=candidates[nextIndex];setCandidateIndex(nextIndex);setForm(()=>({...blank,currency:fields.currency??'',provider:fields.provider??'',name:fields.name??'',type:(fields.type as InvestmentType|undefined)??'Other',principal:fields.principal?Number(fields.principal.replaceAll(',','')):0,annualRate:fields.annualRate?Number(fields.annualRate):0,startDate:fields.startDate??'',maturityDate:fields.maturityDate??null,frequency:fields.frequency?normalizeFrequency(fields.frequency):'unknown'}));setParseError('');setParseStatus(`Saved investment ${nextIndex} of ${candidates.length}. Review the next candidate, its currency and its KES conversion rate.`)}
     }
     catch (e) { setParseError(e instanceof Error ? e.message : 'Could not save investment.') }
     finally { setSaving(false) }
@@ -395,8 +408,8 @@ function InvestmentModal({ initial, initialTab='manual', existingItems, preferen
   return <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}><section ref={dialogRef} className="modal-card" tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="modal-title"><div className="modal-header"><div><div className="section-kicker"><Plus size={14} /> PORTFOLIO DETAILS</div><h2 id="modal-title">{initial ? 'Edit investment' : 'Add an investment'}</h2><p>Enter the details you know. You can update them any time.</p></div><button className="icon-button close-button" onClick={onClose} aria-label="Close dialog"><X size={19} /></button></div>
     {!initial && <div className="modal-tabs" role="tablist" aria-label="Choose how to add an investment"><button id="investment-tab-manual" type="button" role="tab" aria-controls="investment-entry-panel" aria-selected={tab === 'manual'} tabIndex={tab==='manual'?0:-1} className={tab === 'manual' ? 'active' : ''} onClick={() => setTab('manual')} onKeyDown={switchTab}><Pencil size={15} /> Enter manually</button><button id="investment-tab-statement" type="button" role="tab" aria-controls="investment-entry-panel" aria-selected={tab === 'statement'} tabIndex={tab==='statement'?0:-1} className={tab === 'statement' ? 'active' : ''} onClick={() => setTab('statement')} onKeyDown={switchTab}><FileText size={15} /> From statement <span className="local-tag">LOCAL</span></button></div>}
     <div id="investment-entry-panel" className="investment-entry-panel" role={initial?undefined:'tabpanel'} aria-labelledby={initial?undefined:`investment-tab-${tab}`}>
-    {tab === 'statement' && !initial && <div className="upload-area"><input ref={fileRef} type="file" accept="application/pdf,.pdf" onChange={e => void handleFile(e.target.files?.[0])} hidden /><div className="upload-icon"><Upload size={19} /></div><strong>Extract from a PDF statement</strong><p>Text is read in this browser. The file is not uploaded anywhere. Scanned PDFs need manual entry in this prototype.</p><button type="button" className="button button-quiet" onClick={() => fileRef.current?.click()}><Upload size={15} /> Choose PDF</button>{fileName && <div className="file-name"><FileText size={14} />{fileName}</div>}{parseStatus && <div className="parse-status" role="status"><BadgeCheck size={15} />{parseStatus}</div>}</div>}
-    <form className="investment-form" onSubmit={e => void submit(e)}>{parseError&&<p className="parse-error" role="alert">{parseError}</p>}
+    {tab === 'statement' && !initial && <div className="upload-area"><input ref={fileRef} type="file" accept="application/pdf,.pdf" onChange={e => {const file=e.target.files?.[0];e.target.value='';void handleFile(file)}} hidden /><div className="upload-icon"><Upload size={19} /></div><strong>Extract from a PDF statement</strong><p>PDF text and scanned pages are read on this device using Tesseract OCR. Your statement is not uploaded. English scans supported · up to 12 MB and 12 pages.</p><label className="profile-checkbox"><input type="checkbox" checked={forceOcr} disabled={parsing} onChange={e=>setForceOcr(e.target.checked)}/><span>Use OCR for all pages (try this if text extraction misses details)</span></label><button type="button" className="button button-quiet" disabled={parsing} onClick={() => fileRef.current?.click()}><Upload size={15} /> Choose PDF</button>{parsing&&<button type="button" className="text-button" onClick={cancelReading}>Cancel reading</button>}{fileName && <div className="file-name"><FileText size={14} />{fileName}</div>}{parseStatus && <div className="parse-status" role="status">{parseStatus}</div>}</div>}
+    <form className="investment-form" onSubmit={e => void submit(e)}>{tab==='statement'&&ocrWarnings.map((warning,index)=><p className="duplicate-warning" role="status" key={index}>{warning}</p>)}{tab==='statement'&&extractedText&&<details><summary>View extracted text to check the results</summary><pre className="statement-extracted-text">{extractedText}</pre></details>}{parseError&&<p className="parse-error" role="alert">{parseError}</p>}
       {tab === 'statement' && statementLoaded && <div className="review-banner"><Check size={15} /><span><strong>Review extracted details.</strong> Extraction may be wrong or incomplete. Confirm every value before saving.</span></div>}
       {duplicate&&<div className="duplicate-warning" role="alert"><CircleHelp size={15}/> Possible duplicate: a saved investment has the same provider, name and principal. Confirm before adding.</div>}
       {!initial&&<label className="field template-field"><span>Start from a product template</span><span className="select-wrap"><select defaultValue="" onChange={e=>useTemplate(e.target.value)}><option value="">Choose a template (optional)</option><option value="treasury">Treasury bond · semi-annual coupons</option><option value="fixed">Fixed deposit · at maturity</option><option value="mmf">Money market fund · daily accrual (paid out)</option></select><ChevronDown size={15}/></span></label>}
@@ -423,7 +436,7 @@ function InvestmentModal({ initial, initialTab='manual', existingItems, preferen
       </div>
       {attempted && (!form.provider.trim() || !form.name.trim() || !(form.principal > 0) || (form.maturityDate && form.maturityDate < form.startDate)) && <p className="validation-error" role="alert">Enter a name, provider and positive principal. Maturity must be on or after the start date.</p>}
       <div className="form-preview"><div className="preview-icon"><TrendingUp size={17} /></div><div><strong>Live estimate preview</strong><span>Earned so far: {previewEarned} · Next 12 months: {previewNext}. {previewUnknown?'Range is simple accrual to daily compounding.':form.interestMode==='compound'?(form.frequency==='at_maturity'?'Simple accrual retained until maturity; no interim compounding.':`Compounds ${frequencyLabels[form.frequency].toLowerCase()} using ACT/365.`):'Simple accrual for paid-out interest.'} {form.yieldBasis==='gross'&&form.taxRate>0?` Tax estimate ${form.taxRate}% applied to accrued earnings.`:''}</span></div><CircleHelp size={15} className="preview-help" /></div>
-      <div className="modal-footer"><span><LockKeyhole size={13} /> Your information is private</span><div><button type="button" className="button button-quiet" onClick={onClose}>Cancel</button><button type="submit" className="button button-primary" disabled={saving}>{saving ? 'Saving…' : tab==='statement'&&candidateIndex<candidates.length-1?'Save & review next':initial ? 'Save changes' : 'Save investment'} <ArrowRight size={15} /></button></div></div>
+      <div className="modal-footer"><span><LockKeyhole size={13} /> Your information is private</span><div><button type="button" className="button button-quiet" onClick={onClose}>Cancel</button><button type="submit" className="button button-primary" disabled={saving||parsing}>{saving ? 'Saving…' : tab==='statement'&&candidateIndex<candidates.length-1?'Save & review next':initial ? 'Save changes' : 'Save investment'} <ArrowRight size={15} /></button></div></div>
     </form></div></section></div>
 }
 function RadioCard({ selected, title, description, onClick }: { selected: boolean; title: string; description: string; onClick: () => void }) {
