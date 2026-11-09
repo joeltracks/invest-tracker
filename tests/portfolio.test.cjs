@@ -271,9 +271,9 @@ test('future email drafts encode notes and reject missing or injected destinatio
 test('an unconfigured contact page offers copying without claiming email delivery',()=>{
   const {ContactPage}=contactUi();
   const html=renderToStaticMarkup(React.createElement(ContactPage,{initialDraft:contactDraft(),onDraftChange:()=>{},recipient:''}));
-  assert.ok(html.includes('Email delivery is being set up'));assert.ok(html.includes('Copy note'));assert.ok(!html.includes('Open email draft'));assert.ok(!html.includes('VITE_'));assert.ok(html.includes('Your feedback'));
+  assert.ok(html.includes('This button copies your feedback'));assert.ok(html.includes('Send feedback'));assert.ok(!html.includes('VITE_'));assert.ok(html.includes('Your feedback'));
   const configured=renderToStaticMarkup(React.createElement(ContactPage,{initialDraft:contactDraft(),onDraftChange:()=>{},recipient:'team@example.test'}));
-  assert.ok(configured.includes('Open email draft'));assert.ok(configured.includes('Copy note'));assert.ok(configured.includes('Send your feedback from your email app'));
+  assert.ok(configured.includes('Send feedback'));assert.ok(configured.includes('Copy note'));assert.ok(configured.includes('Send your feedback from your email app'));
 });
 
 test('clipboard failure leaves a functional prepared-note fallback and no sent confirmation',async()=>{
