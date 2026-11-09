@@ -27,7 +27,7 @@ export function buildInvestmentCsv(items:Investment[],asOf=new Date()):string {
 
 function App() {
   const { profile, openExisting, closeProfile, pendingAction, completeEntryAction } = useAccount()
-  const contactDraft = useRef<ContactDraft>(newContactDraft(profile))
+  const contactDraft = useRef<ContactDraft>(newContactDraft())
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false)
   const [activeSection, setActiveSection] = useState(()=>navigationSection(typeof window!=='undefined'?window.location.hash:''))
   const navigationToggle = useRef<HTMLButtonElement>(null)

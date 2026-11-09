@@ -1,5 +1,4 @@
 import { useRef, useState, type FormEvent } from 'react'
-import { ChevronDown } from 'lucide-react'
 import { contactEmail } from './lib/contactConfig'
 import { buildContactMailto, contactMessageLimit, contactRecipient, contactTopics, ContactDraftError, formatContactNote, type ContactDraft } from './lib/contact'
 
@@ -64,25 +63,79 @@ export function ContactPage({ initialDraft, onDraftChange, recipient = contactEm
     } finally { setBusy(false) }
   }
 
-  return <section className="contact-page" aria-labelledby="contact-title">
-    <div className="page-heading"><div><h1 id="contact-title">Contact us & feedback<span className="heading-period">.</span></h1><p className="subheading">Ask a question, report a problem or tell us what could be better.</p></div></div>
-    <section className="panel contact-panel" aria-labelledby="contact-form-title">
-      <h2 id="contact-form-title">Write your note</h2>
-      <p className="contact-delivery-note">{address ? 'Open a prefilled draft in your email app, then send it there. You can also copy the note.' : 'Email delivery is being set up. For now, write your note and copy it to keep a copy.'}</p>
-      <form onSubmit={event => void submit(event)} aria-label="Contact us and feedback">
-        <div className="contact-details-grid">
-          <label className="field" htmlFor="contact-name">Full name<input id="contact-name" autoComplete="name" required minLength={2} maxLength={80} value={draft.name} onChange={event => change('name', event.target.value)} /></label>
-          <label className="field" htmlFor="contact-email">Reply email address<input id="contact-email" type="email" autoComplete="email" required maxLength={254} value={draft.email} onChange={event => change('email', event.target.value)} /></label>
+  return (
+    <section className="contact-page" aria-labelledby="contact-title">
+      <div className="page-heading">
+        <div>
+          <h1 id="contact-title">Tell us what you think<span className="heading-period">.</span></h1>
+          <p className="subheading">Your feedback helps us fix problems and improve Yieldwise. It takes about a minute.</p>
         </div>
-        <label className="field" htmlFor="contact-topic">Type of note<span className="select-wrap"><select id="contact-topic" value={draft.topic} onChange={event => change('topic', event.target.value as ContactDraft['topic'])}>{Object.entries(contactTopics).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><ChevronDown size={16} aria-hidden="true" /></span></label>
-        <label className="field" htmlFor="contact-message">Your message<textarea id="contact-message" required minLength={10} maxLength={contactMessageLimit} rows={7} value={draft.message} onChange={event => change('message', event.target.value)} aria-describedby="contact-message-help contact-character-count" placeholder="What would you like to share?" /></label>
-        <div className="contact-message-help"><small id="contact-message-help">10–4,000 characters. Only the details you type are included; investments and statements are not attached.</small><span id="contact-character-count">{draft.message.length.toLocaleString()} / {contactMessageLimit.toLocaleString()}</span></div>
-        {error && <p className="validation-error" role="alert">{error}</p>}
-        <div className="contact-actions"><button type="submit" name="action" value={address ? 'email' : 'copy'} className="button button-primary" disabled={busy}>{busy ? 'Copying…' : address ? 'Open email draft' : 'Copy note'}</button>{address && <button type="submit" name="action" value="copy" className="button button-quiet" disabled={busy}>Copy note</button>}</div>
-      </form>
-      {notice && <p className="contact-notice" role="status">{notice}</p>}
-      {prepared && <div className="contact-preview"><label className="field" htmlFor="contact-prepared">Prepared note<textarea ref={preview} id="contact-prepared" readOnly rows={8} value={prepared} /></label></div>}
-      <p className="contact-session-note">Your draft stays open as you move between sections. Reloading or logging out clears it.</p>
+      </div>
+
+      <section className="panel contact-panel" aria-label="Feedback form">
+        <form onSubmit={event => void submit(event)} aria-label="Contact us and feedback">
+          <fieldset className="contact-choice-group">
+            <legend>What kind of feedback is this?</legend>
+            <div className="contact-topics" id="contact-topic">
+              {Object.entries(contactTopics).map(([value, label]) => (
+                <label className="contact-choice" key={value}>
+                  <input className="sr-only" type="radio" name="feedback-topic" value={value}
+                    checked={draft.topic === value} onChange={() => change('topic', value as ContactDraft['topic'])} />
+                  <span>{label}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+
+          <fieldset className="contact-choice-group" aria-describedby="contact-rating-scale">
+            <legend>How was your experience? <small>(optional)</small></legend>
+            <div className="contact-ratings" id="contact-rating">
+              {[1, 2, 3, 4, 5].map(value => (
+                <label className="contact-choice" key={value}>
+                  <input className="sr-only" type="radio" name="feedback-rating" value={value}
+                    aria-label={value === 1 ? '1, Poor' : value === 5 ? '5, Excellent' : String(value)}
+                    checked={draft.rating === value} onChange={() => change('rating', value)} />
+                  <span>{value}</span>
+                </label>
+              ))}
+            </div>
+            <div className="contact-rating-scale" id="contact-rating-scale"><span>Poor</span><span>Excellent</span></div>
+          </fieldset>
+
+          <div className="contact-message">
+            <label className="field" htmlFor="contact-message">
+              Your feedback
+              <textarea id="contact-message" required minLength={10} maxLength={contactMessageLimit} rows={6}
+                value={draft.message} onChange={event => change('message', event.target.value)}
+                aria-describedby="contact-message-help contact-character-count"
+                placeholder="Tell us what happened or what you’d like to see." />
+            </label>
+            <div className="contact-message-help">
+              <small id="contact-message-help">At least 10 characters.</small>
+              <span id="contact-character-count">{draft.message.length.toLocaleString()} / {contactMessageLimit.toLocaleString()}</span>
+            </div>
+          </div>
+
+          <label className="field" htmlFor="contact-email">
+            <span>Email <small>(optional, only if you’d like a reply)</small></span>
+            <input id="contact-email" type="email" autoComplete="email" maxLength={254} placeholder="you@example.com"
+              value={draft.email} onChange={event => change('email', event.target.value)} />
+          </label>
+
+          {error && <p className="validation-error" role="alert">{error}</p>}
+          <div className="contact-actions">
+            <button type="submit" name="action" value={address ? 'email' : 'copy'} className="button button-primary" disabled={busy}>
+              {busy ? 'Copying…' : address ? 'Open email draft' : 'Copy note'}
+            </button>
+            <p className="contact-delivery-note">
+              {address ? 'Send your feedback from your email app once the draft opens.' : 'Email delivery is being set up. Copy your feedback to save it.'}
+            </p>
+            {address && <button type="submit" name="action" value="copy" className="button button-quiet" disabled={busy}>Copy note</button>}
+          </div>
+        </form>
+        {notice && <p className="contact-notice" role="status">{notice}</p>}
+        {prepared && <div className="contact-preview"><label className="field" htmlFor="contact-prepared">Prepared note<textarea ref={preview} id="contact-prepared" readOnly rows={8} value={prepared} /></label></div>}
+      </section>
     </section>
-  </section>
+  )
 }

@@ -232,7 +232,7 @@ test('investment dialog focus ignores hidden controls, stays contained and retur
 });
 
 const contact=load('contact');
-const contactDraft=()=>({...contact.newContactDraft(ada),message:'Please add a way to compare monthly income.'});
+const contactDraft=()=>({...contact.newContactDraft(),message:'Please add a way to compare monthly income.'});
 function contactUi(react=React){
   const exports={},source=fs.readFileSync('src/ContactPage.tsx','utf8');
   const js=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText;
@@ -249,19 +249,19 @@ test('contact is below Profile, supports history and resumes through the profile
 });
 
 test('contact notes validate trimmed values and include only explicitly entered details',()=>{
-  const draft={...contactDraft(),name:' Ada Example ',message:'  Please improve my income view.  ',investments:[{privateValue:'UNRELATED_PORTFOLIO_DATA'}]};
-  const note=contact.formatContactNote(draft);assert.ok(note.includes('Name: Ada Example'));assert.ok(note.endsWith('Please improve my income view.'));assert.ok(!note.includes('UNRELATED_PORTFOLIO_DATA'));
-  assert.throws(()=>contact.validateContactDraft({...contactDraft(),message:'          '}),/10–4,000/);
-  assert.throws(()=>contact.validateContactDraft({...contactDraft(),message:'x'.repeat(4001)}),/10–4,000/);
+  const draft={...contactDraft(),email:' ada@example.test ',rating:4,message:'  Please improve my income view.  ',investments:[{privateValue:'UNRELATED_PORTFOLIO_DATA'}]};
+  const note=contact.formatContactNote(draft);assert.ok(note.includes('Reply email: ada@example.test'));assert.ok(note.includes('Experience rating: 4/5'));assert.ok(!contact.formatContactNote(contactDraft()).includes('Reply email:'));assert.ok(note.endsWith('Please improve my income view.'));assert.ok(!note.includes('UNRELATED_PORTFOLIO_DATA'));
+  assert.throws(()=>contact.validateContactDraft({...contactDraft(),message:'          '}),/10–1,000/);
+  assert.throws(()=>contact.validateContactDraft({...contactDraft(),message:'x'.repeat(1001)}),/10–1,000/);
   assert.throws(()=>contact.validateContactDraft({...contactDraft(),email:'bad'}),/reply email/);
   assert.throws(()=>contact.validateContactDraft({...contactDraft(),topic:'__proto__'}),/type of note/);
-  assert.throws(()=>contact.validateContactDraft({...contactDraft(),name:'Ada\nBcc: x'}),/name/);
+  assert.throws(()=>contact.validateContactDraft({...contactDraft(),rating:6}),/rating/);
 });
 
 test('future email drafts encode notes and reject missing or injected destinations',()=>{
   const draft={...contactDraft(),message:'Feedback &bcc=unwanted@example.test\nThanks — asante!'};
   const uri=contact.buildContactMailto('team+feedback@example.test',draft),url=new URL(uri);
-  assert.ok(uri.startsWith('mailto:team%2Bfeedback@example.test?'));assert.equal(url.searchParams.get('subject'),'[Yieldwise] Feedback');
+  assert.ok(uri.startsWith('mailto:team%2Bfeedback@example.test?'));assert.equal(url.searchParams.get('subject'),'[Yieldwise] Suggestion');
   assert.ok(url.searchParams.get('body').endsWith(draft.message));assert.equal(url.searchParams.get('bcc'),null);
   for(const value of ['', 'team@example.test?bcc=other@example.test', 'team@example.test\r\nBcc: other@example.test'])assert.equal(contact.contactRecipient(value),null);
   assert.throws(()=>contact.buildContactMailto('',draft),/not configured/);
@@ -271,9 +271,9 @@ test('future email drafts encode notes and reject missing or injected destinatio
 test('an unconfigured contact page offers copying without claiming email delivery',()=>{
   const {ContactPage}=contactUi();
   const html=renderToStaticMarkup(React.createElement(ContactPage,{initialDraft:contactDraft(),onDraftChange:()=>{},recipient:''}));
-  assert.ok(html.includes('Email delivery is being set up'));assert.ok(html.includes('Copy note'));assert.ok(!html.includes('Open email draft'));assert.ok(!html.includes('VITE_'));assert.ok(html.includes('Your message'));
+  assert.ok(html.includes('Email delivery is being set up'));assert.ok(html.includes('Copy note'));assert.ok(!html.includes('Open email draft'));assert.ok(!html.includes('VITE_'));assert.ok(html.includes('Your feedback'));
   const configured=renderToStaticMarkup(React.createElement(ContactPage,{initialDraft:contactDraft(),onDraftChange:()=>{},recipient:'team@example.test'}));
-  assert.ok(configured.includes('Open email draft'));assert.ok(configured.includes('Copy note'));assert.ok(configured.includes('send it there'));
+  assert.ok(configured.includes('Open email draft'));assert.ok(configured.includes('Copy note'));assert.ok(configured.includes('Send your feedback from your email app'));
 });
 
 test('clipboard failure leaves a functional prepared-note fallback and no sent confirmation',async()=>{
