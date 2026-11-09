@@ -1,6 +1,6 @@
 # Yieldwise dashboard prototype
 
-Responsive React + TypeScript frontend for tracking income investments. New portfolios start empty. Profiles, investment records and KES settings are stored in this browser. Database integration and secure authentication are deferred.
+Responsive React + TypeScript frontend for tracking income investments. New portfolios start empty. Use the browser workspace for local portfolios or configure Supabase for verified accounts and cloud sync.
 
 ## Run locally
 
@@ -36,7 +36,7 @@ Projections are estimates, not guaranteed returns or financial advice.
 
 The prototype stores personal entries in local storage on the current browser profile. Do not use it for sensitive real financial records on a shared device.
 
-Profiles currently use local name/email selection. No passwords, email links or MFA are collected or simulated. They identify a workspace on this device and provide no security boundary against someone using the same browser. Configure real authentication and user-owned cloud storage in a future backend phase.
+Browser-only profiles use local name/email selection. No passwords, email links or MFA are collected or simulated. They identify a workspace on this device and provide no security boundary against someone using the same browser. Use cloud mode for verified authentication and cross-device access.
 
 For screen readers, mobile cards expose table roles and descriptive labels. This environment has no VoiceOver or TalkBack device, so manual VoiceOver and TalkBack validation remains necessary before release.
 
