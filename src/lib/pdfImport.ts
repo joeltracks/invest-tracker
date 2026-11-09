@@ -34,7 +34,7 @@ export async function parsePdf(file:File, options:PdfOptions={}):Promise<ParsedS
       options.onProgress?.('Reading page '+pageNum+' of '+Math.min(pdf.numPages,12)+'…')
       const page=await run(pdf.getPage(pageNum))
       const content=await run(page.getTextContent())
-      let text=content.items.filter((item):item is typeof item & {str:string}=>'str' in item).map(item=>item.str).join(' ').trim()
+      let text=content.items.filter((item):item is typeof item & {str:string}=>'str' in item).map(item=>item.str+('hasEOL' in item&&item.hasEOL?'\n':' ')).join('').trim()
       if(options.forceOcr||text.replace(/\s/g,'').length<80) {
         if(!worker){
           options.onProgress?.('Loading local OCR engine and English language data…')

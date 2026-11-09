@@ -3,6 +3,7 @@ import { Activity, ArrowDownToLine, ArrowRight, CalendarDays, ChartNoAxesCombine
 import { addMonths, estimate, estimateLabel, formatMoney, investmentState, nextPayout, currentYield, dateKey, hasUnknownTerms, netValue, valueRange, incomeRange, scheduledPayouts, taxFactor } from './lib/calculations'
 import { appendEvent, deleteInvestment, loadInvestments, restoreInvestment, saveInvestment, setInvestmentStatus } from './lib/localStore'
 import { parsePdf } from './lib/pdfImport'
+import type { StatementFields } from './lib/statementText'
 import type { Frequency, Investment, InvestmentInput, InvestmentType } from './types'
 import { ProfilePage, useAccount } from './Account'
 import { PortfolioTools } from './PortfolioTools'
@@ -12,7 +13,7 @@ import { investmentTabForKey, navigationSection, type InvestmentTab } from './li
 import { ContactPage } from './ContactPage'
 import { newContactDraft, type ContactDraft } from './lib/contact'
 
-const blank: InvestmentInput = { provider: '', name: '', type: 'MMF', principal: 0, currency: 'KES', annualRate: 0, startDate: dateKey(new Date()), maturityDate: null, frequency: 'unknown', interestMode: 'unknown', yieldBasis: 'gross', taxRate: 0, statementValue: null, couponMonths: [] }
+const blank: InvestmentInput = { provider: '', name: '', type: 'MMF', principal: 0, currency: 'KES', annualRate: Number.NaN, startDate: dateKey(new Date()), maturityDate: null, frequency: 'unknown', interestMode: 'unknown', yieldBasis: 'gross', taxRate: 0, statementValue: null, couponMonths: [] }
 const frequencyLabels: Record<Frequency, string> = { daily: 'Daily', monthly: 'Monthly', quarterly: 'Quarterly', semiannual: 'Semiannually', annual: 'Annually', at_maturity: 'At maturity', unknown: 'Not sure' }
 const currencyOptions = currencyCodes
 
@@ -324,6 +325,7 @@ function InvestmentModal({ initial, initialTab='manual', existingItems, preferen
   const [saving, setSaving] = useState(false)
   const [attempted, setAttempted] = useState(false)
   const [statementLoaded, setStatementLoaded] = useState(false)
+  const [statementTypeMissing, setStatementTypeMissing] = useState(false)
   const [fileName, setFileName] = useState('')
   const [candidates, setCandidates] = useState<NonNullable<Awaited<ReturnType<typeof parsePdf>>['candidates']>>([])
   const [candidateIndex, setCandidateIndex] = useState(0)
@@ -348,14 +350,32 @@ function InvestmentModal({ initial, initialTab='manual', existingItems, preferen
   const previewNext=!previewReady?'Confirm currency and enter a valid KES rate':previewUnknown?`Between ${formatMoney(Math.max(0,yearEstimate.low-todayEstimate.low)*previewTax*previewFx,'KES')} and ${formatMoney(Math.max(0,yearEstimate.high-todayEstimate.high)*previewTax*previewFx,'KES')}`:formatMoney(Math.max(0,yearEstimate.interest-todayEstimate.interest)*previewTax*previewFx,'KES')
 
   function useTemplate(value:string) {
+    if(value) setStatementTypeMissing(false)
     if(value==='treasury')setForm(prev=>({...prev,type:'Bond',name:prev.name||'Treasury bond',frequency:'semiannual',interestMode:'paid_out',couponMonths:[]}))
     if(value==='fixed')setForm(prev=>({...prev,type:'Other',name:prev.name||'Fixed deposit',frequency:'at_maturity',interestMode:'paid_out'}))
     if(value==='mmf')setForm(prev=>({...prev,type:'MMF',name:prev.name||'Money market fund',frequency:'daily',interestMode:'paid_out'}))
   }
 
   function setType(type: InvestmentType) {
+    setStatementTypeMissing(false)
     setForm(prev => ({ ...prev, type, name: type === 'MMF' && prev.name === '' ? 'Money Market Fund' : prev.name, frequency: prev.frequency, maturityDate: type === 'MMF' ? null : prev.maturityDate }))
   }
+  function applyStatementFields(fields: StatementFields) {
+    setStatementTypeMissing(!fields.type)
+    setForm({
+      ...blank,
+      provider: fields.provider ?? '',
+      name: fields.name ?? '',
+      type: fields.type ?? 'Other',
+      currency: fields.currency ?? '',
+      principal: fields.principal ? Number(fields.principal.replaceAll(',', '')) : 0,
+      annualRate: fields.annualRate === undefined ? Number.NaN : Number(fields.annualRate),
+      startDate: fields.startDate ?? '',
+      maturityDate: fields.maturityDate ?? null,
+      frequency: fields.frequency ? normalizeFrequency(fields.frequency) : 'unknown',
+    })
+  }
+
   async function handleFile(file?: File) {
     if (!file) return
     parseController.current?.abort()
@@ -369,17 +389,7 @@ function InvestmentModal({ initial, initialTab='manual', existingItems, preferen
       setExtractedText(result.text);setOcrWarnings(result.warnings)
       const list=result.candidates?.length?result.candidates:[result.fields];setCandidates(list);setCandidateIndex(0)
       const fields = list[0]
-      setForm(prev => ({ ...prev,
-        currency: fields.currency ?? '',
-        provider: fields.provider ?? prev.provider,
-        name: fields.name ?? prev.name,
-        type: (fields.type as InvestmentType | undefined) ?? prev.type,
-        principal: fields.principal ? Number(fields.principal.replaceAll(',', '')) : prev.principal,
-        annualRate: fields.annualRate ? Number(fields.annualRate) : prev.annualRate,
-        startDate: fields.startDate ?? prev.startDate,
-        maturityDate: fields.maturityDate ?? prev.maturityDate,
-        frequency: fields.frequency ? normalizeFrequency(fields.frequency) : prev.frequency,
-      }))
+      applyStatementFields(fields)
       const count = Object.entries(fields).filter(([key,value])=>key!=='currencyStatus'&&Boolean(value)).length
       setStatementLoaded(true)
       setParseStatus(count ? `Found ${list.length} possible investment${list.length===1?'':'s'} and ${count} fields for this one. Review each before saving.` : 'Readable text found, but no familiar fields were identified. Fill in details manually.')
@@ -390,7 +400,7 @@ function InvestmentModal({ initial, initialTab='manual', existingItems, preferen
 
   async function submit(event: FormEvent) {
     event.preventDefault(); setAttempted(true)
-    if(parsing)return
+    if(parsing||(tab==='statement'&&statementLoaded&&statementTypeMissing))return
     if(!currencyCodes.includes(form.currency)){setParseError('Confirm the investment currency before saving.');return}
     if(form.currency!=='KES'&&(conversionRate===null||!Number.isFinite(form.principal*conversionRate))){setParseError('Enter a positive, finite conversion rate to KES before saving this investment.');return}
     if (!form.provider.trim() || !form.name.trim() || !Number.isFinite(form.principal) || !(form.principal > 0) || !Number.isFinite(form.annualRate) || form.annualRate < 0 || !form.startDate || (form.maturityDate && form.maturityDate < form.startDate)) return
@@ -398,7 +408,7 @@ function InvestmentModal({ initial, initialTab='manual', existingItems, preferen
     try {
       const keep=tab==='statement'&&!initial&&candidateIndex<candidates.length-1
       await onSave({ ...form, provider: form.provider.trim(), name: form.name.trim(), maturityDate: form.maturityDate || null }, initial?.id,keep,conversionRate??undefined)
-      if(keep){const nextIndex=candidateIndex+1,fields=candidates[nextIndex];setCandidateIndex(nextIndex);setForm(()=>({...blank,currency:fields.currency??'',provider:fields.provider??'',name:fields.name??'',type:(fields.type as InvestmentType|undefined)??'Other',principal:fields.principal?Number(fields.principal.replaceAll(',','')):0,annualRate:fields.annualRate?Number(fields.annualRate):0,startDate:fields.startDate??'',maturityDate:fields.maturityDate??null,frequency:fields.frequency?normalizeFrequency(fields.frequency):'unknown'}));setParseError('');setParseStatus(`Saved investment ${nextIndex} of ${candidates.length}. Review the next candidate, its currency and its KES conversion rate.`)}
+      if(keep){const nextIndex=candidateIndex+1,fields=candidates[nextIndex];setCandidateIndex(nextIndex);applyStatementFields(fields);setParseError('');setParseStatus(`Saved investment ${nextIndex} of ${candidates.length}. Review the next candidate, its currency and its KES conversion rate.`)}
     }
     catch (e) { setParseError(e instanceof Error ? e.message : 'Could not save investment.') }
     finally { setSaving(false) }
@@ -410,13 +420,13 @@ function InvestmentModal({ initial, initialTab='manual', existingItems, preferen
     <div id="investment-entry-panel" className="investment-entry-panel" role={initial?undefined:'tabpanel'} aria-labelledby={initial?undefined:`investment-tab-${tab}`}>
     {tab === 'statement' && !initial && <div className="upload-area"><input ref={fileRef} type="file" accept="application/pdf,.pdf" onChange={e => {const file=e.target.files?.[0];e.target.value='';void handleFile(file)}} hidden /><div className="upload-icon"><Upload size={19} /></div><strong>Extract from a PDF statement</strong><p>PDF text and scanned pages are read on this device using Tesseract OCR. Your statement is not uploaded. English scans supported · up to 12 MB and 12 pages.</p><label className="profile-checkbox"><input type="checkbox" checked={forceOcr} disabled={parsing} onChange={e=>setForceOcr(e.target.checked)}/><span>Use OCR for all pages (try this if text extraction misses details)</span></label><button type="button" className="button button-quiet" disabled={parsing} onClick={() => fileRef.current?.click()}><Upload size={15} /> Choose PDF</button>{parsing&&<button type="button" className="text-button" onClick={cancelReading}>Cancel reading</button>}{fileName && <div className="file-name"><FileText size={14} />{fileName}</div>}{parseStatus && <div className="parse-status" role="status">{parseStatus}</div>}</div>}
     <form className="investment-form" onSubmit={e => void submit(e)}>{tab==='statement'&&ocrWarnings.map((warning,index)=><p className="duplicate-warning" role="status" key={index}>{warning}</p>)}{tab==='statement'&&extractedText&&<details><summary>View extracted text to check the results</summary><pre className="statement-extracted-text">{extractedText}</pre></details>}{parseError&&<p className="parse-error" role="alert">{parseError}</p>}
-      {tab === 'statement' && statementLoaded && <div className="review-banner"><Check size={15} /><span><strong>Review extracted details.</strong> Extraction may be wrong or incomplete. Confirm every value before saving.</span></div>}
+      {tab === 'statement' && statementLoaded && <div className="review-banner"><Check size={15} /><span><strong>Review extracted details.</strong> Compare the name, type, annual rate and principal with your statement. Correct any figures and fill in missing details before saving.</span></div>}
       {duplicate&&<div className="duplicate-warning" role="alert"><CircleHelp size={15}/> Possible duplicate: a saved investment has the same provider, name and principal. Confirm before adding.</div>}
       {!initial&&<label className="field template-field"><span>Start from a product template</span><span className="select-wrap"><select defaultValue="" onChange={e=>useTemplate(e.target.value)}><option value="">Choose a template (optional)</option><option value="treasury">Treasury bond · semi-annual coupons</option><option value="fixed">Fixed deposit · at maturity</option><option value="mmf">Money market fund · daily accrual (paid out)</option></select><ChevronDown size={15}/></span></label>}
       <div className="form-section-title"><span>01</span> Investment details</div>
       <div className="form-grid"><label className="field full"><span>Investment or product name <b>*</b></span><input value={form.name} onChange={e => put('name', e.target.value)} placeholder="e.g. Horizon Money Market Fund" required aria-invalid={attempted && !form.name.trim()} /></label>
         <label className="field"><span>Provider / company <b>*</b></span><input value={form.provider} onChange={e => put('provider', e.target.value)} placeholder="e.g. Horizon Capital" required /></label>
-        <label className="field"><span>Investment type <b>*</b></span><span className="select-wrap"><select value={form.type} onChange={e => setType(e.target.value as InvestmentType)}><option value="MMF">Money market fund (MMF)</option><option value="Bond">Bond</option><option value="Other">Other income investment</option></select><ChevronDown size={15} /></span></label>
+        <label className="field"><span>Investment type <b>*</b></span><span className="select-wrap"><select required value={tab==='statement'&&statementLoaded&&statementTypeMissing?'':form.type} onChange={e => setType(e.target.value as InvestmentType)}><option value="" disabled>Select investment type</option><option value="MMF">Money market fund (MMF)</option><option value="Bond">Bond</option><option value="Other">Other income investment</option></select><ChevronDown size={15} /></span></label>
       </div>
       <div className="form-section-title second"><span>02</span> Amount & timing</div>
       <div className="form-grid">{initial?<div className="field"><span>Current principal</span><strong>{formatMoney(estimate(initial,new Date()).principal,initial.currency)}</strong><small>Opening principal: {formatMoney(initial.principal,initial.currency)}. Dated top-ups and withdrawals determine the current amount.</small><div className="ledger-actions"><button type="button" className="text-button" onClick={()=>onRecordEvent(initial,'deposit')}>Add top-up</button><button type="button" className="text-button" onClick={()=>onRecordEvent(initial,'withdrawal')}>Add withdrawal</button></div></div>:<label className="field"><span>Principal amount <b>*</b></span><div className="input-with-prefix"><span>{form.currency}</span><input type="number" min="0.01" step="0.01" value={form.principal || ''} onChange={e => put('principal', Number(e.target.value))} placeholder="10,000.00" required /></div>{form.type === 'Bond' && <small>Enter face value for coupon estimates. Purchase-price yield is not modeled.</small>}</label>}
@@ -428,7 +438,7 @@ function InvestmentModal({ initial, initialTab='manual', existingItems, preferen
       {statementLoaded&&tab==='statement'&&<p className="currency-detection" role="status">{candidates[candidateIndex]?.currencyStatus==='detected'?'Statement currency detected: '+candidates[candidateIndex].currency+'. Confirm it against your statement.':'The statement currency is missing or ambiguous. Select the correct currency above; a dollar sign alone does not identify USD.'}</p>}
       {form.currency&&form.currency!=='KES'&&<div className="investment-fx"><h3>Convert this investment to KES</h3><p>{statementLoaded?'This statement is in '+form.currency+'. ':'This investment is in '+form.currency+'. '}Enter the current rate you want to apply before saving.</p><label className="field"><span>1 {form.currency} = how many KES? <b>*</b></span><div className="input-with-suffix"><input type="number" required min="0.00000001" step="any" value={conversionRates[form.currency]??''} onChange={e=>setConversionRates(prev=>({...prev,[form.currency]:Number(e.target.value)}))} placeholder="Enter conversion rate"/><span>KES</span></div></label><p aria-live="polite">{conversionRate!==null&&Number.isFinite(todayEstimate.principal*conversionRate)?'Principal in KES: '+formatMoney(todayEstimate.principal*conversionRate,'KES'):'Enter a valid rate to preview the KES equivalent.'}</p><small>User-set rate, not a live quote. Saving applies it to all {form.currency} holdings, current totals and projections. The original amount stays in {form.currency}.</small></div>}
       <div className="form-section-title second"><span>03</span> Interest & payout terms</div>
-      <div className="form-grid">{initial?<div className="field"><span>Current recorded yield</span><strong>{(initial?currentYield(initial):form.annualRate).toFixed(2)}%</strong><button type="button" className="text-button" onClick={()=>onRecordEvent(initial,'rate_change')}>Record rate change</button></div>:<label className="field"><span>Annual interest rate / yield <b>*</b></span><div className="input-with-suffix"><input type="number" min="0" max="1000" step="0.01" value={form.annualRate || ''} onChange={e => put('annualRate', Number(e.target.value))} placeholder="5.25" required /><span>%</span></div></label>}
+      <div className="form-grid">{initial?<div className="field"><span>Current recorded yield</span><strong>{(initial?currentYield(initial):form.annualRate).toFixed(2)}%</strong><button type="button" className="text-button" onClick={()=>onRecordEvent(initial,'rate_change')}>Record rate change</button></div>:<label className="field"><span>Annual interest rate / yield <b>*</b></span><div className="input-with-suffix"><input type="number" min="0" max="1000" step="any" value={Number.isFinite(form.annualRate) ? form.annualRate : ''} onChange={e => put('annualRate', e.target.valueAsNumber)} placeholder="5.25" required /><span>%</span></div></label>}
         <label className="field"><span>Payment / compounding frequency <small>As stated by provider</small><span className="help-line">Look for “coupon frequency”, “distribution”, or “interest credited” on the statement’s product terms.</span></span><span className="select-wrap"><select value={form.frequency} onChange={e => setForm(prev=>({...prev,frequency:e.target.value as Frequency,couponMonths:[]}))}>{Object.entries(frequencyLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select><ChevronDown size={15} /></span><small>Payment dates are estimates: {form.couponMonths.length?`coupon months ${form.couponMonths.join(', ')}, using the start day`:'start-date anniversaries'}. Confirm the provider’s actual schedule. Changing frequency resets coupon months.</small></label>
         <label className="field"><span>Yield amount basis</span><span className="select-wrap"><select value={form.yieldBasis} onChange={e=>put('yieldBasis',e.target.value as 'gross'|'net')}><option value="gross">Gross, before tax</option><option value="net">Net, after tax</option></select><ChevronDown size={15}/></span></label>
         {form.yieldBasis==='gross'&&<label className="field"><span>Estimated tax rate <small>Optional</small></span><div className="input-with-suffix"><input type="number" min="0" max="100" step="0.1" value={form.taxRate||''} onChange={e=>put('taxRate',Number(e.target.value))} placeholder="0"/><span>%</span></div></label>}

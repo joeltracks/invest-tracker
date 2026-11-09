@@ -304,3 +304,17 @@ test('clipboard failure leaves a functional prepared-note fallback and no sent c
     find(tree,node=>node.props?.id==='contact-message').props.onChange({target:{value:'Here is an updated feedback note.'}});tree=render();assert.equal(latest.message,'Here is an updated feedback note.');assert.equal(find(tree,node=>node.props?.role==='status'),null);assert.equal(find(tree,node=>node.props?.id==='contact-prepared'),null);
   }finally{if(originalNavigator)Object.defineProperty(global,'navigator',originalNavigator);else delete global.navigator;if(originalRaf===undefined)delete global.requestAnimationFrame;else global.requestAnimationFrame=originalRaf}
 });
+
+test('statement fields populate from separate labels and a product heading',()=>{
+  const result=statements.parseStatementText('Horizon Money Market Fund Statement\nFund Manager: Horizon Capital\nPrincipal Amount\nKSh 150 000.00\nAnnualized Yield (p.a.): 8,75 percent\nClosing Balance: KES 157,500');
+  const {name,type,provider,annualRate,principal,currency}=result.fields;
+  assert.deepEqual({name,type,provider,annualRate,principal,currency},{name:'Horizon Money Market Fund',type:'MMF',provider:'Horizon Capital',annualRate:'8.75',principal:'150000.00',currency:'KES'});
+});
+test('explicit product type wins and balance, monthly and conflicting rates stay out of annual inputs',()=>{
+  const {fields}=statements.parseStatementText('Investment Name: Income Portfolio\nProduct Type: Treasury Bond\nClosing balance: USD 1000\nMonthly Yield: 0.5%\nAnnual Yield: 5%\nAnnual Interest Rate: 6%');
+  assert.equal(fields.name,'Income Portfolio');
+  assert.equal(fields.type,'Bond');
+  assert.equal(fields.principal,undefined);
+  assert.equal(fields.annualRate,undefined);
+  assert.equal(statements.parseStatementText('Product Name: Zero Coupon Bond\nCoupon Rate: 0%').fields.annualRate,'0');
+});
