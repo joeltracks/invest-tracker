@@ -69,6 +69,6 @@ export function LandingPage({ hasProfile, cloud = false, onStart, onLogin }: Lan
       <section className="public-privacy" id="privacy"><ShieldCheck size={23} aria-hidden="true" /><div><h2>Know where your information lives.</h2><p>{cloud ? 'Your investments and settings sync to your account. Export a JSON backup to keep a copy of your portfolio.' : 'This version saves profiles and investments only in this browser. Profiles have no password protection or cloud sync. Export a JSON backup to keep a copy of your portfolio.'}</p></div></section>
       <section className="public-final-cta"><span className="section-kicker">YOUR NEXT CHAPTER</span><h2>Make room for a<br />clearer financial picture.</h2><button type="button" className="button button-primary" onClick={() => onStart('dashboard')}>{hasProfile ? 'Open portfolio' : 'Sign up'} <ArrowRight size={17} aria-hidden="true" /></button>{!hasProfile && <p>Already have a profile? <button type="button" className="text-button" onClick={onLogin}>Log in</button></p>}</section>
     </main>
-    <footer className="public-footer"><span>© 2026 Yieldwise prototype</span><span>Estimates, not guarantees. Not financial advice.</span></footer>
+    <footer className="public-footer"><span>© 2026 Yieldwise</span><span>Estimates, not guarantees. Not financial advice.</span></footer>
   </div>
 }
