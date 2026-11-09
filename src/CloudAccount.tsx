@@ -12,7 +12,15 @@ function redirectUrl(recovery = false) {
 }
 
 function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : 'The request failed. Please try again.'
+  const status = error && typeof error === 'object' && 'status' in error ? error.status : undefined
+  const code = error && typeof error === 'object' && 'code' in error ? error.code : undefined
+  if (status === 429) return 'Too many requests. Wait a moment and try again.'
+  if (code === 'invalid_credentials') return 'Check your email address and password.'
+  if (code === 'email_not_confirmed') return 'Verify your email address before signing in.'
+  if (code === 'weak_password' || code === 'same_password') return 'Choose a stronger password you have not used for this account.'
+  if (code === 'otp_expired') return 'That link or code has expired. Request a new one and try again.'
+  if (code === 'mfa_verification_failed') return 'Check the code in your authenticator and try again.'
+  return 'The account request failed. Please try again.'
 }
 
 export function CloudAccount({ client, children }: { client: SupabaseClient; children: ReactNode }) {
@@ -163,7 +171,7 @@ function AuthForm({ client, mode, action, onBack, onSwitch, onSuccess }: {
     event.preventDefault()
     void run(async () => {
       if (mode === 'signup') {
-        if (name.trim().length < 2) throw Error('Enter your name.')
+        if (name.trim().length < 2) { setError('Enter your name.'); return }
         const { data, error } = await client.auth.signUp({ email: email.trim(), password, options: {
           data: { display_name: name.trim() }, emailRedirectTo: redirectUrl(),
         } })
@@ -182,7 +190,7 @@ function AuthForm({ client, mode, action, onBack, onSwitch, onSuccess }: {
         const { data, error } = await client.auth.mfa.listFactors()
         if (error) throw error
         const factor = data.totp[0]
-        if (!factor) throw Error('No authenticator is available for this account.')
+        if (!factor) { setError('No authenticator is available for this account.'); return }
         const result = await client.auth.mfa.challengeAndVerify({ factorId: factor.id, code })
         if (result.error) throw result.error
         onSuccess()
@@ -209,7 +217,7 @@ function AuthForm({ client, mode, action, onBack, onSwitch, onSuccess }: {
       <div className="profile-form-footer">
         {credentials && <button className="text-button" onClick={onSwitch}>{mode === 'login' ? 'Create an account' : 'Sign in instead'}</button>}
         {mode === 'login' && <button className="text-button" disabled={busy} onClick={() => void run(async () => {
-          if (!email.trim()) throw Error('Enter your email address first.')
+          if (!email.trim()) { setError('Enter your email address first.'); return }
           const { error } = await client.auth.resetPasswordForEmail(email.trim(), { redirectTo: redirectUrl(true) })
           if (error) throw error
           setNotice('If an account exists for this address, check your inbox for a reset link.')

@@ -74,12 +74,35 @@ do $$ begin
 end $$;
 
 reset role;
+do $$
+declare
+  actor uuid := 'a1000000-0000-4000-8000-000000000001';
+begin
+  for attempt in 1..5 loop
+    if not public.yieldwise_limit_account_deletion(actor) then raise exception 'Deletion limit rejected a permitted attempt'; end if;
+  end loop;
+  if public.yieldwise_limit_account_deletion(actor) then raise exception 'Deletion limit allowed an extra attempt'; end if;
+  if has_function_privilege('authenticated','public.yieldwise_limit_account_deletion(uuid)','execute')
+     or has_function_privilege('anon','public.yieldwise_limit_account_deletion(uuid)','execute') then
+    raise exception 'Client role can consume another user''s deletion limit';
+  end if;
+  update yieldwise_private.request_limits set requests=60 where user_id=actor and operation='portfolio_write';
+end $$;
+set local role authenticated;
+do $$
+begin
+  perform public.yieldwise_write(auth.uid(),4,'delete','{"id":"test-holding"}');
+  raise exception 'Portfolio write limit was bypassed';
+exception when sqlstate 'PT429' then null;
+end $$;
+reset role;
 delete from auth.users where id='a1000000-0000-4000-8000-000000000001';
 do $$
 begin
   if exists(select 1 from yieldwise_private.investments where user_id='a1000000-0000-4000-8000-000000000001')
      or exists(select 1 from yieldwise_private.investment_events where user_id='a1000000-0000-4000-8000-000000000001')
      or exists(select 1 from yieldwise_private.fx_rates where user_id='a1000000-0000-4000-8000-000000000001')
+     or exists(select 1 from yieldwise_private.request_limits where user_id='a1000000-0000-4000-8000-000000000001')
   then raise exception 'Account deletion did not cascade'; end if;
   if has_function_privilege('anon','public.yieldwise_portfolio(uuid)','execute')
      or has_function_privilege('anon','public.yieldwise_write(uuid,integer,text,jsonb)','execute')

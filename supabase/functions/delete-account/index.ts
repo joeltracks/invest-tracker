@@ -5,7 +5,14 @@ Deno.serve(async (request: Request) => {
   const allowed = Deno.env.get('ALLOWED_ORIGIN')
   const origin = request.headers.get('Origin')
   const headers = { 'Access-Control-Allow-Origin': allowed ?? '', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Vary': 'Origin', 'Content-Type': 'application/json' }
-  const respond = (status: number, error?: string) => new Response(JSON.stringify(error ? {error} : {deleted:true}), {status,headers})
+  const respond = (status: number, error?: string) => {
+    if (status === 200 || status === 429 || status >= 500) {
+      console.log(JSON.stringify({ event: 'account_deletion', requestId: crypto.randomUUID(), status }))
+    }
+    return new Response(JSON.stringify(error ? {error} : {deleted:true}), {
+      status, headers: status === 429 ? {...headers, 'Retry-After': '60'} : headers,
+    })
+  }
   if (!allowed || origin !== allowed) return respond(403,'Origin is not configured for account deletion.')
   if (request.method === 'OPTIONS') return new Response(null,{status:204,headers})
   if (request.method !== 'POST') return respond(405,'Use POST.')
@@ -15,8 +22,11 @@ Deno.serve(async (request: Request) => {
     const client = createClient(Deno.env.get('SUPABASE_URL')!,Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,{auth:{persistSession:false,autoRefreshToken:false}})
     const {data:{user},error} = await client.auth.getUser(token)
     if (error || !user) return respond(401,'Sign in again before deleting your account.')
-    const body = await request.json()
-    if (body.confirmation !== 'DELETE' || body.accountId !== user.id) return respond(400,'Confirm deletion for the currently signed-in account.')
+    const slot = await client.rpc('yieldwise_limit_account_deletion', { actor: user.id })
+    if (slot.error || typeof slot.data !== 'boolean') return respond(503,'Account deletion is temporarily unavailable. Retry later.')
+    if (!slot.data) return respond(429,'Too many deletion requests. Wait a minute and retry.')
+    const body = await request.json().catch(() => null)
+    if (body?.confirmation !== 'DELETE' || body.accountId !== user.id) return respond(400,'Confirm deletion for the currently signed-in account.')
     // Only inspect claims after the token has been validated by Supabase Auth.
     const payload = token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')
     const claims = JSON.parse(atob(payload.padEnd(Math.ceil(payload.length/4)*4,'=')))
@@ -29,5 +39,5 @@ Deno.serve(async (request: Request) => {
     const deletion = await client.auth.admin.deleteUser(user.id, false)
     if (deletion.error) return respond(500,'Account deletion failed. Retry or contact your administrator. Storage objects owned by this user must be removed first if your project uses Storage.')
     return respond(200)
-  } catch { return respond(400,'Unable to process account deletion.') }
+  } catch { return respond(500,'Unable to process account deletion. Retry later.') }
 })
