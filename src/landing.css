@@ -269,6 +269,10 @@
   padding-left: var(--space-32);
 }
 
+.public-feature-grid article:last-child {
+  grid-column: 1 / -1;
+}
+
 .public-feature-grid article > svg {
   color: var(--blue);
   margin-bottom: var(--space-20);

@@ -31,7 +31,7 @@ const React=require('react'),{renderToStaticMarkup}=require('react-dom/server');
 function appExports(react=React){
   const exports={},source=fs.readFileSync('src/App.tsx','utf8');
   const js=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true}}).outputText;
-  const req=p=>{if(p==='react')return react;if(p==='./Account')return {useAccount:()=>({profile:null,openExisting:()=>{}}),ProfilePage:()=>null};if(p==='./ContactPage')return {ContactPage:()=>null};if(p==='./PortfolioTools')return {PortfolioTools:()=>null};if(p==='./lib/pdfImport')return {parsePdf:()=>{throw Error('No PDF access in calculation test')}};if(p.startsWith('./lib/'))return load(p.slice(6));return require(p)};
+  const req=p=>{if(p==='react')return react;if(p==='./Account')return {useAccount:()=>({profile:null,openExisting:()=>{}}),ProfilePage:()=>null};if(p==='./ContactPage')return {ContactPage:()=>null};if(p==='./PortfolioTools')return {PortfolioTools:()=>null};if(p.startsWith('./lib/'))return load(p.slice(6));return require(p)};
   new Function('require','exports',js+';exports.InvestmentModal=InvestmentModal;exports.EventModal=EventModal;exports.useModalFocus=useModalFocus;')(req,exports);
   return exports;
 }
@@ -47,7 +47,7 @@ function dashboard(items,date,rates={USD:130}){
       if(p==='./Account')return {useAccount:()=>({profile:null,openExisting:()=>{}}),ProfilePage:()=>null};
       if(p==='./ContactPage')return {ContactPage:()=>null};
       if(p==='./PortfolioTools')return {PortfolioTools:()=>null};
-      if(p==='./lib/pdfImport')return {parsePdf:()=>{throw Error('No PDF access in calculation test')}};
+      
       if(p.startsWith('./lib/'))return load(p.slice(6));
       return require(p);
     };
@@ -67,15 +67,11 @@ test('combined currency total and goal use manual FX in the declared direction',
   try{const html=renderToStaticMarkup(React.createElement(exports.PortfolioTools,{items:[inv(),{...inv(),id:'kes',currency:'KES',principal:500}],onImport:()=>{},preferences:prefs.loadPreferences(),onPreferencesChange:()=>{}}));assert.ok(html.includes(calc.formatMoney(130500,'KES')));assert.ok(html.includes(calc.formatMoney(1087.5,'KES')));assert.ok(html.includes('aria-valuenow="54"'))}finally{global.Date=NativeDate;prefs.setPreferenceScope('two')}
 });
 
-const currency=load('currency'),statements=load('statementText');
+const currency=load('currency');
 test('fresh settings default to KES and legacy goals are not relabelled',()=>{prefs.setPreferenceScope('kes-default');assert.equal(prefs.loadPreferences().baseCurrency,'KES');localStorage.setItem(prefs.preferenceKey(),JSON.stringify({baseCurrency:'USD',monthlyGoal:500,rates:{KES:130,EUR:1.1}}));const migrated=prefs.loadPreferences();assert.equal(migrated.baseCurrency,'KES');assert.equal(migrated.monthlyGoal,0);assert.deepEqual(migrated.rates,{})});
 test('KES quotes use source-to-KES multiplication and reject invalid rates',()=>{assert.equal(currency.toKes(1000,'USD',{USD:130}),130000);assert.equal(currency.toKes(1000,'KES',{}),1000);assert.equal(currency.toKes(1000,'EUR',{USD:130}),null);for(const rate of [0,-1,Infinity,NaN])assert.throws(()=>currency.withKesRate({},'USD',rate),/positive/);assert.equal(currency.toKes(1e300,'USD',{USD:1e300}),null)});
 test('dashboard waits for all FX rates instead of showing partial KES totals',()=>{const html=dashboard([inv(),{...inv(),id:'k',currency:'KES',principal:500}],'2025-01-01T12:00:00',{});assert.ok(html.includes('Set conversion rates'));assert.ok(html.includes('USD to KES conversion rate'));assert.ok(!html.includes('class="chart-svg"'))});
 test('overflowing conversion quotes cannot publish infinite dashboard totals',()=>{const html=dashboard([inv()],'2025-01-01T12:00:00',{USD:1e308});assert.ok(html.includes('values too large to display'));assert.ok(!html.includes('class="chart-svg"'));assert.ok(!html.includes('KES∞'))});
-test('statement parser recognizes KES aliases, ISO codes and explicit symbols',()=>{for(const [text,code] of [['Principal: KShs. 150,000','KES'],['Principal: 150,000 KES','KES'],['Principal: USD 1,000','USD'],['Principal: CHF 1,000','CHF'],['Principal: €1,000','EUR'],['Currency: GBP Principal: 1,000','GBP']]){const field=statements.parseStatementText(text).fields;assert.equal(field.currency,code,text);assert.equal(field.principal,text.includes('150,000')?'150,000':'1,000',text)}});
-test('ambiguous or missing currency stays unselected for review',()=>{assert.equal(statements.detectCurrency('Principal: $1,000').currencyStatus,'ambiguous');assert.equal(statements.detectCurrency('Principal: 1,000').currencyStatus,'missing');const conflict=statements.detectCurrency('Currency: USD Principal: KES 1,000');assert.equal(conflict.currency,undefined);assert.equal(conflict.currencyStatus,'ambiguous')});
-test('multiple statement investments retain their own currencies and amounts',()=>{const parsed=statements.parseStatementText('Provider: Alpha Product name: Dollar Fund Principal: USD 1,000 Yield: 5% Provider: Beta Product name: Local Bond Principal: KES 200,000 Yield: 10%');assert.equal(parsed.candidates.length,2);assert.deepEqual(parsed.candidates.map(i=>i.currency),['USD','KES']);assert.deepEqual(parsed.candidates.map(i=>i.principal),['1,000','200,000'])});
-test('annual rate language does not invent an annual payout frequency',()=>{assert.equal(statements.parseStatementText('Principal: USD 1,000 Annual interest rate: 5% Payment frequency: monthly').fields.frequency,'monthly');assert.equal(statements.parseStatementText('Principal: USD 1,000 Annual interest rate: 5%').fields.frequency,undefined);assert.equal(statements.parseStatementText('Principal: USD 1,000 Payment frequency: annual').fields.frequency,'annual')});
 test('fresh and cleared local portfolios stay empty without sample seeding',()=>{store.setStorageScope(null);store.clearPortfolio();assert.deepEqual(store.loadInvestments(),[]);store.replaceInvestments([]);assert.deepEqual(store.loadInvestments(),[]);store.clearPortfolio();assert.deepEqual(store.loadInvestments(),[])});
 test('legacy sample cleanup preserves custom entries, reconciliations and event history',()=>{store.setStorageScope(null);const seed={...inv(),id:'demo-mmf',provider:'Cedar Capital',name:'Cedar Money Market Fund',annualRate:5.2,principal:15000,startDate:'2024-08-01',frequency:'unknown',interestMode:'unknown'};const real={...inv(),id:'real'};store.replaceInvestments([seed,real]);assert.deepEqual(store.loadInvestments(),[real]);assert.equal(JSON.parse(localStorage.getItem('yieldwise-demo-investments-v1')).length,1);const edited={...seed,name:'My actual investment'};const reconciled={...seed,statementValue:15100};const ledger={...seed,events:[{id:'topup',date:'2025-02-01',kind:'deposit',amount:100}]};const changedTerms={...seed,frequency:'monthly'},changedDate={...seed,startDate:'2024-09-01'};store.replaceInvestments([edited,reconciled,ledger,changedTerms,changedDate]);assert.deepEqual(store.loadInvestments(),[edited,reconciled,ledger,changedTerms,changedDate])});
 test('sample cleanup does not alter signed-in account storage',()=>{store.setStorageScope('sample-cleanup-account');const item={...inv(),id:'demo-mmf',provider:'Cedar Capital',name:'Cedar Money Market Fund',annualRate:5.2,principal:15000};store.replaceInvestments([item]);assert.deepEqual(store.loadInvestments(),[item]);store.setStorageScope('other')});
@@ -162,14 +158,14 @@ test('Add investment continues through sign up, sets profile scopes and resumes 
 
 test('Login cancellation and signup/login switching preserve the requested tool and existing records',()=>{
   resetProfiles();const saved=profiles.createLocalProfile(ada);localStorage.setItem('yieldwise-investments-'+saved.id,JSON.stringify([{...inv(),principal:4321}]));
-  const harness=entryHarness('#signup?next=import-statement');
+  const harness=entryHarness('#signup?next=add-investment');
   try{
     let tree=harness.render();tree.props.children[0].props.onExisting();tree=harness.render();
-    assert.equal(window.location.hash,'#login?next=import-statement');assert.equal(tree.props.children[1].props.action,'import-statement');assert.equal(tree.props.value.profile,null);
-    tree.props.children[1].props.onClose();tree=harness.render();assert.equal(window.location.hash,'#signup?next=import-statement');assert.equal(tree.props.children[0].props.action,'import-statement');
-    tree.props.children[0].props.onExisting();tree=harness.render();tree.props.children[1].props.onCreate();tree=harness.render();assert.equal(tree.props.children[0].props.action,'import-statement');
+    assert.equal(window.location.hash,'#login?next=add-investment');assert.equal(tree.props.children[1].props.action,'add-investment');assert.equal(tree.props.value.profile,null);
+    tree.props.children[1].props.onClose();tree=harness.render();assert.equal(window.location.hash,'#signup?next=add-investment');assert.equal(tree.props.children[0].props.action,'add-investment');
+    tree.props.children[0].props.onExisting();tree=harness.render();tree.props.children[1].props.onCreate();tree=harness.render();assert.equal(tree.props.children[0].props.action,'add-investment');
     tree.props.children[0].props.onExisting();tree=harness.render();tree.props.children[1].props.onOpen(profiles.findLocalProfile(ada));tree=harness.render();
-    assert.equal(tree.props.value.pendingAction,'import-statement');assert.equal(store.loadInvestments()[0].principal,4321);assert.equal(tree.props.value.profile.id,saved.id);
+    assert.equal(tree.props.value.pendingAction,'add-investment');assert.equal(store.loadInvestments()[0].principal,4321);assert.equal(tree.props.value.profile.id,saved.id);
   }finally{harness.restore()}
 });
 
@@ -209,22 +205,13 @@ test('navigation preserves the active destination for deep links and history has
   finally{if(previous===undefined)delete global.window;else global.window=previous}
 });
 
-test('investment tabs support horizontal arrows, Home and End without consuming other keys',()=>{
-  const {investmentTabForKey:next}=load('uiNavigation');
-  for(const key of ['ArrowLeft','ArrowRight']){assert.equal(next('manual',key),'statement');assert.equal(next('statement',key),'manual')}
-  for(const tab of ['manual','statement']){assert.equal(next(tab,'Home'),'manual');assert.equal(next(tab,'End'),'statement');assert.equal(next(tab,'Tab'),null);assert.equal(next(tab,'ArrowDown'),null)}
-});
-
-test('entry tabs label their panel, expose one tab stop and give interest choices a named group',()=>{
+test('Add investment opens the manual form directly and old import links lead there',()=>{
   const {InvestmentModal}=appExports(),noop=()=>{};
-  for(const tab of ['manual','statement']){
-    const html=renderToStaticMarkup(React.createElement(InvestmentModal,{initial:null,initialTab:tab,existingItems:[],preferences:{baseCurrency:'KES',rates:{},monthlyGoal:0},onClose:noop,onRecordEvent:noop,onSave:async()=>{}}));
-    assert.match(html,new RegExp('id="investment-tab-'+tab+'"[^>]*aria-controls="investment-entry-panel"[^>]*aria-selected="true"[^>]*tabindex="0"'));
-    const other=tab==='manual'?'statement':'manual';assert.match(html,new RegExp('id="investment-tab-'+other+'"[^>]*tabindex="-1"'));
-    assert.match(html,new RegExp('id="investment-entry-panel"[^>]*role="tabpanel"[^>]*aria-labelledby="investment-tab-'+tab+'"'));
-    assert.match(html,/<fieldset class="field full interest-treatment"><legend>What happens to interest\?<\/legend>/);
-    if(tab==='statement')assert.ok(html.indexOf('investment-entry-panel" class=')<html.indexOf('Extract from a PDF statement'));
-  }
+  const html=renderToStaticMarkup(React.createElement(InvestmentModal,{initial:null,existingItems:[],preferences:{baseCurrency:'KES',rates:{},monthlyGoal:0},onClose:noop,onRecordEvent:noop,onSave:async()=>{}}));
+  assert.match(html,/Investment or product name/);
+  assert.ok(html.includes('<fieldset class="field full interest-treatment"><legend>What happens to interest?</legend>'));
+  assert.doesNotMatch(html,/role="tablist"|type="file"|From statement/);
+  assert.equal(load('entryRoutes').readEntryRoute('#signup?next=import-statement').action,'add-investment');
 });
 
 test('investment dialog focus ignores hidden controls, stays contained and returns to its opener',()=>{
@@ -303,18 +290,4 @@ test('clipboard failure leaves a functional prepared-note fallback and no sent c
     assert.equal(find(tree,node=>node.props?.id==='contact-prepared').props.value,contact.formatContactNote(props.initialDraft));
     find(tree,node=>node.props?.id==='contact-message').props.onChange({target:{value:'Here is an updated feedback note.'}});tree=render();assert.equal(latest.message,'Here is an updated feedback note.');assert.equal(find(tree,node=>node.props?.role==='status'),null);assert.equal(find(tree,node=>node.props?.id==='contact-prepared'),null);
   }finally{if(originalNavigator)Object.defineProperty(global,'navigator',originalNavigator);else delete global.navigator;if(originalRaf===undefined)delete global.requestAnimationFrame;else global.requestAnimationFrame=originalRaf}
-});
-
-test('statement fields populate from separate labels and a product heading',()=>{
-  const result=statements.parseStatementText('Horizon Money Market Fund Statement\nFund Manager: Horizon Capital\nPrincipal Amount\nKSh 150 000.00\nAnnualized Yield (p.a.): 8,75 percent\nClosing Balance: KES 157,500');
-  const {name,type,provider,annualRate,principal,currency}=result.fields;
-  assert.deepEqual({name,type,provider,annualRate,principal,currency},{name:'Horizon Money Market Fund',type:'MMF',provider:'Horizon Capital',annualRate:'8.75',principal:'150000.00',currency:'KES'});
-});
-test('explicit product type wins and balance, monthly and conflicting rates stay out of annual inputs',()=>{
-  const {fields}=statements.parseStatementText('Investment Name: Income Portfolio\nProduct Type: Treasury Bond\nClosing balance: USD 1000\nMonthly Yield: 0.5%\nAnnual Yield: 5%\nAnnual Interest Rate: 6%');
-  assert.equal(fields.name,'Income Portfolio');
-  assert.equal(fields.type,'Bond');
-  assert.equal(fields.principal,undefined);
-  assert.equal(fields.annualRate,undefined);
-  assert.equal(statements.parseStatementText('Product Name: Zero Coupon Bond\nCoupon Rate: 0%').fields.annualRate,'0');
 });

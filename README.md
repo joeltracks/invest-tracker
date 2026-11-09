@@ -21,7 +21,7 @@ npm run build
 - Scheduled, active, matured and closed states; scheduled and closed records are excluded from totals. Matured investments prompt a renew/update or close decision.
 - Live estimates in the add form, templates for Treasury bonds, fixed deposits and MMFs, payout/maturity dates, monthly payout overview, chart tooltips/breakdown, sort/filter, and weighted average yield.
 - Statement reconciliation field with the difference from the app estimate.
-- Local PDF text extraction with candidate review for multiple detected investments and duplicate warnings. No external AI/OCR is called. Scanned PDFs use local Tesseract OCR, with progress, cancellation and a review step.
+- Manual investment entry with editable product templates and duplicate warnings.
 - Undo after deletion, CSV export, responsive holdings cards with table roles and labels, validation, keyboard controls, and an empty state.
 
 ## Projection assumptions
@@ -34,7 +34,7 @@ Projections are estimates, not guaranteed returns or financial advice.
 
 ## Privacy, authentication and next phase
 
-Statement files are processed in the browser and are not uploaded. Selectable text is read directly; scanned pages are rendered locally and read with Tesseract.js. Every extracted field must be reviewed before saving. Multi-investment detection relies on repeated principal labels and can miss or mis-group statement layouts; always verify against the source. The prototype stores personal entries in local storage on the current browser profile. Do not use it for sensitive real financial records on a shared device.
+The prototype stores personal entries in local storage on the current browser profile. Do not use it for sensitive real financial records on a shared device.
 
 Profiles currently use local name/email selection. No passwords, email links or MFA are collected or simulated. They identify a workspace on this device and provide no security boundary against someone using the same browser. Configure real authentication and user-owned cloud storage in a future backend phase.
 
@@ -48,8 +48,8 @@ Run npm install, npm run dev, npm test, npm run typecheck and npm run build (out
 ## Profile flow
 
 - Visitors first land on a public page with scrollable product information, estimate assumptions and privacy notes. Returning users without an active tab session can browse it too; no login popup opens automatically.
-- Functional actions (Add investment, Import statement, Set income goal and Manage investments) lead to Sign up. The page offers Log in for an existing profile and Back to website. Name and email are validated; duplicate email addresses on this device are rejected.
-- Log in opens a popup asking for the saved name and email. This selects a local workspace; no email is sent and no password is stored. The requested action survives switching between sign up and log in or reloading either URL, then opens after entry (including the PDF statement tab or income goal settings).
+- Functional actions (Add investment, Set income goal and Manage investments) lead to Sign up. The page offers Log in for an existing profile and Back to website. Name and email are validated; duplicate email addresses on this device are rejected.
+- Log in opens a popup asking for the saved name and email. This selects a local workspace; no email is sent and no password is stored. The requested action survives switching between sign up and log in or reloading either URL, then opens after entry.
 - Profile appears in the sidebar as a separate page with editable details, backup navigation, profile switching and explicit confirmation before local removal. It replaces the old Account & security section on Overview. No magic-link option is present.
 - One profile ID scopes the holdings and KES preference keys. Switching selects both scopes before the dashboard mounts. Changing name/email preserves the same ID, investments and event history.
 - The first profile can opt to copy investments and settings already entered in the browser. The original local workspace is retained. Additional profiles begin empty.
@@ -80,13 +80,11 @@ Motion: one 600ms chart reveal on first intersection. Content is visible without
 
 Calculation consistency: chart points, endpoints, investment reconciliation and combined-currency totals use the same tax-adjusted retained-value helpers. Paid-out earnings remain separate from account value. Future dated deposits and withdrawals affect the chart endpoint. Active weighted yield excludes matured, scheduled and closed holdings and weights the stated current rate by remaining principal; it is not an effective after-tax return. Date-only ledger and payout labels preserve the local calendar date rather than converting midnight to UTC.
 
-## Kenya reporting and statement currencies
+## Kenya reporting and investment currencies
 
 KES is the default for new holdings, portfolio totals, projections, the monthly income goal and payout equivalents. Holdings retain their original currency for statements and reconciliation. Foreign holdings require a positive finite manual quote in the direction `1 source unit = X KES`; KES value is original amount multiplied by that quote. One saved quote per currency applies to all its holdings and future projection dates. Quotes are user-set and are not fetched, verified or dated as live market rates. Update them whenever needed. No FX gains, historical FX movements, spread or conversion fees are modeled.
 
 The visible conversion panel prompts for rates on existing foreign holdings and JSON imports. Missing active-currency rates block the complete total, goal progress and chart; the app never assumes currency parity or presents a partial portfolio as complete. The add/edit form also prompts for a quote before saving a foreign holding. Current and projected native amounts remain available in each holding; native amounts are never overwritten by their KES equivalents.
-
-Local PDF extraction recognizes ISO currency codes, KSh/KShs, currency labels and supported symbols near investment amounts. Each detected investment has its own currency review. Ambiguous dollar signs, conflicting labels or missing currency leave the currency unselected, requiring explicit confirmation. Foreign candidates show a conversion-rate field and KES principal preview before save. Reused saved quotes remain editable and are clearly user-set. Scanned PDFs use local English Tesseract OCR; no external AI/OCR service is used. Extraction reads at most the first 12 pages and can miss unfamiliar layouts. Always check the statement.
 
 Older settings or backup settings that report in another currency are not reinterpreted as KES. Existing holdings keep their currency; fresh KES rates and a KES goal must be entered. Legacy JSON investments can be imported, while their non-KES reporting settings are excluded.
 
@@ -97,11 +95,3 @@ No investment samples are automatically loaded. Earlier built-in samples saved i
 Opening principal is retained as the historical starting amount. Current principal is opening principal plus effective dated top-ups, less effective dated withdrawals. A future event applies on its selected date; recording it does not change today's principal early. Valid withdrawals cannot exceed available capital or invalidate a later withdrawal. Income is recalculated between those dates using the principal then in effect.
 
 The dashboard, investment row and edit view use current principal. Foreign-currency edit previews convert that current principal to KES. The ledger previews principal after the proposed event before it is recorded. CSV exports include separate opening/current principal columns and the snapshot date, so exported capital agrees with the dashboard without overwriting the opening balance or counting events twice. JSON backups retain opening amounts and the complete event ledger for re-import.
-
-## Local statement OCR
-
-Tesseract.js 6.0.1 reads scanned PDF pages in a browser worker. No API key or paid OCR service is needed. npm install installs the engine and English model; npm run dev and npm run build automatically run prepare:ocr to copy their assets into public/ocr. Vercel uses the same build command. Generated assets are ignored by Git and served from the app itself. The model may be cached in browser IndexedDB; PDF contents and extracted text are not persisted by the OCR flow. Initial OCR use downloads engine/model assets and can take time, especially on mobile.
-
-Choose Add investment → From statement → Choose PDF. Pages with fewer than 80 non-space text characters use OCR automatically. Select Use OCR for all pages before choosing a file if a partial or broken text layer misses details. The same file can be selected again. Reading supports up to 12 MB and the first 12 pages, with an explicit truncation warning. Rendering is limited to six million pixels and a 4096-pixel side; reading times out after five minutes. Cancel reading or close the dialog to stop work. Password-protected PDFs must first be unlocked locally. Blurry, rotated, handwritten and non-English scans may need manual entry.
-
-Review the extracted text and each candidate. Low-confidence OCR gets a warning; even high-confidence OCR can misread decimal points or currencies. A new file clears previous candidates and details. Date labels currently recognize ISO YYYY-MM-DD only; other formats need manual confirmation. Currency detection and required user-set KES conversion remain in the review form. Never assume a balance is the original principal: the parser only recognizes explicit principal/amount-invested/face-value labels. No entries are saved until the user confirms the form. Provider layouts without recognizable labels need manual entry.

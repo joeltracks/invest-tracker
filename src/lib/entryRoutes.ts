@@ -1,5 +1,5 @@
 /** Only known portfolio actions may be resumed after local sign up / log in. */
-export const portfolioActions = ['dashboard', 'add-investment', 'import-statement', 'income-goal', 'investments', 'profile', 'contact'] as const
+export const portfolioActions = ['dashboard', 'add-investment', 'income-goal', 'investments', 'profile', 'contact'] as const
 export type PortfolioAction = typeof portfolioActions[number]
 export interface EntryRoute { page: 'landing' | 'signup' | 'login' | 'portfolio'; action: PortfolioAction }
 
@@ -7,7 +7,7 @@ export function readEntryRoute(hash: string): EntryRoute {
   const [path, query = ''] = hash.replace(/^#/, '').split('?')
   if (path === 'signup' || path === 'login') {
     const requested = new URLSearchParams(query).get('next')
-    const action = portfolioActions.find(action => action === requested) ?? 'dashboard'
+    const action = requested === 'import-statement' ? 'add-investment' : portfolioActions.find(action => action === requested) ?? 'dashboard'
     return { page: path, action }
   }
   if (['home', 'public-content', 'features', 'how-it-works', 'estimates', 'privacy'].includes(path)) return { page: 'landing', action: 'dashboard' }
@@ -34,7 +34,6 @@ export function portfolioUrl(action: PortfolioAction): string {
 export const actionLabels: Record<PortfolioAction, string> = {
   dashboard: 'open your portfolio',
   'add-investment': 'add an investment',
-  'import-statement': 'import a statement',
   'income-goal': 'set an income goal',
   investments: 'manage your investments',
   profile: 'open your profile',

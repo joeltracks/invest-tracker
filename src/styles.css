@@ -1596,139 +1596,13 @@ a {
   align-self: flex-start;
 }
 
-.modal-tabs {
-  display: flex;
-  gap: var(--space-4);
-  border-bottom: var(--stroke) solid var(--line);
-  margin: 0 calc(var(--space-28) * -1) var(--space-16);
-  padding: 0 var(--space-28);
-}
-
-.modal-tabs button {
-  border: 0;
-  background: none;
-  padding: var(--space-10) var(--space-12);
-  display: flex;
-  align-items: center;
-  gap: var(--space-6);
-  color: var(--muted);
-  font-size: var(--text-xs);
-  font-weight: var(--weight-semibold);
-  position: relative;
-}
-
-.modal-tabs button.active {
-  color: var(--blue);
-}
-
-.modal-tabs button.active:after {
-  content: '';
-  height: 2px;
-  position: absolute;
-  bottom: -1px;
-  left: 10px;
-  right: 10px;
-  background: var(--blue);
-}
-
-.local-tag {
-  font: var(--text-xs) var(--mono);
-  background: var(--soft-green);
-  color: var(--green);
-  border-radius: var(--radius-sm);
-  padding: var(--space-4) var(--space-4);
-}
-
-.upload-area {
-  border: var(--stroke) dashed var(--control-border);
-  border-radius: var(--radius-sm);
-  background: var(--surface-muted);
-  text-align: center;
-  padding: var(--space-14) var(--space-16);
-  margin-bottom: var(--space-16);
-  display: flex;
-  align-items: center;
-  flex-direction: column;
-}
-
-.upload-icon {
-  width: 34px;
-  height: 34px;
-  border-radius: var(--radius-md);
-  background: var(--soft-blue);
-  color: var(--blue);
-  display: grid;
-  place-items: center;
-  margin-bottom: var(--space-6);
-}
-
-.upload-area>strong {
-  font-size: var(--text-xs);
-  color: var(--ink);
-}
-
-.upload-area>p {
-  font-size: var(--text-xs);
-  color: var(--muted);
-  line-height: var(--leading-body);
-  max-width: 420px;
-  margin: var(--space-4) 0 var(--space-8);
-}
-
-.upload-area .button {
-  padding: var(--space-6) var(--space-10);
-  font-size: var(--text-xs);
-}
-
-.file-name {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-  color: var(--muted);
-  font-size: var(--text-xs);
-  margin-top: var(--space-8);
-}
-
-.parse-status {
-  display: flex;
-  align-items: center;
-  gap: var(--space-6);
-  color: var(--green);
-  background: var(--soft-green);
-  border-radius: var(--radius-sm);
-  padding: var(--space-8) var(--space-10);
-  margin-top: var(--space-8);
-  font-size: var(--text-xs);
-}
-
-.parse-error {
+.investment-save-error {
   color: var(--danger);
   background: var(--soft-orange);
   border-radius: var(--radius-sm);
   padding: var(--space-8) var(--space-10);
   margin-top: var(--space-8);
   font-size: var(--text-xs);
-}
-
-.review-banner {
-  display: flex;
-  align-items: center;
-  gap: var(--space-8);
-  background: var(--soft-warning);
-  border: var(--stroke) solid var(--warning-border);
-  color: var(--warning);
-  padding: var(--space-8) var(--space-10);
-  border-radius: var(--radius-sm);
-  margin-bottom: var(--space-12);
-  font-size: var(--text-xs);
-}
-
-.review-banner svg {
-  flex: 0 0 auto;
-}
-
-.review-banner strong {
-  color: var(--warning);
 }
 
 .form-section-title {
@@ -1779,10 +1653,6 @@ a {
   padding: 0;
   margin-bottom: var(--space-6);
   font: inherit;
-}
-
-.investment-entry-panel {
-  min-width: 0;
 }
 
 .field>span:first-child {
@@ -2535,14 +2405,6 @@ a {
   .modal-header p {
     font-size: var(--text-xs);
   }
-  .modal-tabs {
-    margin: 0 calc(var(--space-16) * -1) var(--space-12);
-    padding: 0 var(--space-16);
-  }
-  .modal-tabs button {
-    padding: var(--space-8) var(--space-10);
-    font-size: var(--text-xs);
-  }
   .form-grid {
     gap: var(--space-10) var(--space-8);
   }
@@ -2586,12 +2448,6 @@ a {
   }
   .modal-footer .button {
     padding: var(--space-8) var(--space-10);
-    font-size: var(--text-xs);
-  }
-  .upload-area {
-    padding: var(--space-12) var(--space-10);
-  }
-  .upload-area>p {
     font-size: var(--text-xs);
   }
   .empty-state {
@@ -3768,7 +3624,7 @@ a {
   margin: 0;
 }
 
-.fx-required,.investment-fx,.currency-detection {
+.fx-required,.investment-fx {
   padding: var(--space-16);
   background: var(--soft-blue);
   border: var(--stroke) solid var(--soft-blue);
@@ -3783,11 +3639,6 @@ a {
 
 .investment-fx .field {
   max-width: 350px;
-}
-
-.currency-detection {
-  background: var(--paper);
-  border-color: var(--line);
 }
 
 .currency-converter :focus-visible:not(input):not(select),.investment-fx :focus-visible:not(input):not(select) {
@@ -4313,5 +4164,3 @@ a {
     gap: var(--space-4);
   }
 }
-
-.statement-extracted-text { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 16rem; overflow: auto; color: var(--ink); font-size: var(--text-sm); }

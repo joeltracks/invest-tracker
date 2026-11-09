@@ -1,15 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from 'react'
-import { Activity, ArrowDownToLine, ArrowRight, CalendarDays, ChartNoAxesCombined, Check, ChevronDown, CircleHelp, FileText, Landmark, LockKeyhole, Pencil, Plus, ShieldCheck, Sparkles, Trash2, TrendingUp, Upload, WalletCards, X, ArrowDownUp } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type RefObject } from 'react'
+import { Activity, ArrowDownToLine, ArrowRight, CalendarDays, ChartNoAxesCombined, Check, ChevronDown, CircleHelp, FileText, Landmark, LockKeyhole, Pencil, Plus, ShieldCheck, Sparkles, Trash2, TrendingUp, WalletCards, X, ArrowDownUp } from 'lucide-react'
 import { addMonths, estimate, estimateLabel, formatMoney, investmentState, nextPayout, currentYield, dateKey, hasUnknownTerms, netValue, valueRange, incomeRange, scheduledPayouts, taxFactor } from './lib/calculations'
 import { appendEvent, deleteInvestment, loadInvestments, restoreInvestment, saveInvestment, setInvestmentStatus } from './lib/localStore'
-import { parsePdf } from './lib/pdfImport'
-import type { StatementFields } from './lib/statementText'
 import type { Frequency, Investment, InvestmentInput, InvestmentType } from './types'
 import { ProfilePage, useAccount } from './Account'
 import { PortfolioTools } from './PortfolioTools'
 import { defaultPreferences, loadPreferences, savePreferences, type Preferences } from './lib/preferences'
 import { currencyCodes, kesRate, withKesRate } from './lib/currency'
-import { investmentTabForKey, navigationSection, type InvestmentTab } from './lib/uiNavigation'
+import { navigationSection } from './lib/uiNavigation'
 import { ContactPage } from './ContactPage'
 import { newContactDraft, type ContactDraft } from './lib/contact'
 
@@ -66,7 +64,6 @@ function App() {
   useEffect(()=>{if(!projectionRef.current||matchMedia("(prefers-reduced-motion: reduce)").matches)return;const observer=new IntersectionObserver(entries=>{if(entries.some(e=>e.isIntersecting)){projectionRef.current?.classList.add("projection-reveal");observer.disconnect()}},{threshold:0.3});observer.observe(projectionRef.current);return()=>observer.disconnect()},[busy,items.length])
   const [error, setError] = useState('')
   const [modal, setModal] = useState(false)
-  const [initialInvestmentTab,setInitialInvestmentTab]=useState<'manual'|'statement'>('manual')
   const [editing, setEditing] = useState<Investment | null>(null)
   const [months, setMonths] = useState(12)
   const currency = 'KES'
@@ -89,9 +86,8 @@ function App() {
 
   useEffect(()=>{
     if(busy||!pendingAction)return
-    if(pendingAction==='add-investment'||pendingAction==='import-statement'){
+    if(pendingAction==='add-investment'){
       setEditing(null)
-      setInitialInvestmentTab(pendingAction==='import-statement'?'statement':'manual')
       setModal(true)
     }else if(pendingAction==='income-goal')navigateTo('portfolio-settings')
     else if(pendingAction==='investments')navigateTo('investments')
@@ -157,14 +153,14 @@ function App() {
   const selectedEvent = timelineEvents.find(event => event.id === selectedEventId)
   const hasData = items.length > 0
 
-  async function save(input: InvestmentInput, id?: string, keepOpen=false, exchangeRate?:number) {
+  async function save(input: InvestmentInput, id?: string, exchangeRate?:number) {
     setError('')
     const nextPreferences={...preferences,baseCurrency:'KES',rates:input.currency==='KES'?preferences.rates:withKesRate(preferences.rates,input.currency,exchangeRate??NaN)}
     savePreferences(nextPreferences)
     let next:Investment[]
     try{next=saveInvestment(input,id)}catch(e){savePreferences(preferences);throw e}
     setPreferences(nextPreferences)
-    setItems(next); if(!keepOpen){setModal(false); setEditing(null)}
+    setItems(next); setModal(false); setEditing(null)
     announce(id ? 'Investment updated' : 'Investment added')
   }
   async function remove(item: Investment) {
@@ -173,8 +169,8 @@ function App() {
   }
   function announce(message: string) { setToast(message); window.setTimeout(() => setToast(''), 2800) }
   function openMethodology() { const details=document.querySelector<HTMLDetailsElement>('#formula-details details'); if(details)details.open=true; document.getElementById('formula-details')?.scrollIntoView({behavior:'smooth'}) }
-  function openAdd() { setEditing(null); setInitialInvestmentTab('manual'); setModal(true) }
-  function openEdit(item: Investment) { setEditing(item); setInitialInvestmentTab('manual'); setModal(true) }
+  function openAdd() { setEditing(null); setModal(true) }
+  function openEdit(item: Investment) { setEditing(item); setModal(true) }
   function recordEvent(item: Investment, kind?:'deposit'|'withdrawal'|'rate_change') { setEventFor(item);setEventKind(kind) }
   function undoDelete() { if(undoItem){setItems(restoreInvestment(undoItem));setUndoItem(null);setToast('Investment restored');window.setTimeout(()=>setToast(''),2500)} }
   function exportCsv() {
@@ -254,7 +250,7 @@ function App() {
       </>}
       <footer className="footer"><span>© 2026 Yieldwise prototype</span><span>Simple by design <span className="footer-dot">·</span> Private by default</span></footer>
     </main>
-    {modal && <InvestmentModal key={editing?.id ?? 'new'} initial={editing} initialTab={initialInvestmentTab} existingItems={items} preferences={preferences} onClose={() => { setModal(false); setEditing(null) }} onRecordEvent={(item,kind)=>{setModal(false);recordEvent(item,kind)}} onSave={save} />}
+    {modal && <InvestmentModal key={editing?.id ?? 'new'} initial={editing} existingItems={items} preferences={preferences} onClose={() => { setModal(false); setEditing(null) }} onRecordEvent={(item,kind)=>{setModal(false);recordEvent(item,kind)}} onSave={save} />}
     {eventFor && <EventModal key={`${eventFor.id}-${eventKind??'any'}`} item={eventFor} initialKind={eventKind} onClose={()=>{setEventFor(null);setEventKind(undefined)}} onSave={(event)=>{const updated=appendEvent(eventFor.id,event);setItems(updated);setEventFor(null);setEventKind(undefined);announce('Ledger event recorded')}} />}
     {toast && <div className="toast" role="status"><Check size={16} />{toast}{undoItem&&<button onClick={undoDelete}>Undo</button>}</div>}
   </div>
@@ -313,33 +309,15 @@ function useModalFocus(ref:RefObject<HTMLElement>,onClose:()=>void){
   },[ref])
 }
 
-function InvestmentModal({ initial, initialTab='manual', existingItems, preferences, onClose, onRecordEvent, onSave }: { initial: Investment | null; initialTab?:InvestmentTab;existingItems:Investment[];preferences:Preferences; onClose: () => void; onRecordEvent:(item:Investment,kind:'deposit'|'withdrawal'|'rate_change')=>void; onSave: (input: InvestmentInput, id?: string, keepOpen?:boolean,exchangeRate?:number) => Promise<void> }) {
+function InvestmentModal({ initial, existingItems, preferences, onClose, onRecordEvent, onSave }: { initial: Investment | null; existingItems:Investment[];preferences:Preferences; onClose: () => void; onRecordEvent:(item:Investment,kind:'deposit'|'withdrawal'|'rate_change')=>void; onSave: (input: InvestmentInput, id?: string,exchangeRate?:number) => Promise<void> }) {
   const [form, setForm] = useState<InvestmentInput>(initial ? { provider: initial.provider, name: initial.name, type: initial.type, principal: initial.principal, currency: initial.currency, annualRate: initial.annualRate, startDate: initial.startDate, maturityDate: initial.maturityDate, frequency: initial.frequency, interestMode: initial.interestMode, yieldBasis: initial.yieldBasis, taxRate: initial.taxRate, statementValue: initial.statementValue, couponMonths: initial.couponMonths } : blank)
-  const [tab, setTab] = useState<InvestmentTab>(initialTab)
-  const [parseStatus, setParseStatus] = useState('')
-  const [parseError, setParseError] = useState('')
-  const [parsing,setParsing]=useState(false),[forceOcr,setForceOcr]=useState(false)
-  const [extractedText,setExtractedText]=useState(''),[ocrWarnings,setOcrWarnings]=useState<string[]>([])
-  const parseController=useRef<AbortController|null>(null)
-  useEffect(()=>()=>{parseController.current?.abort();parseController.current=null},[])
+  const [saveError, setSaveError] = useState('')
   const [saving, setSaving] = useState(false)
   const [attempted, setAttempted] = useState(false)
-  const [statementLoaded, setStatementLoaded] = useState(false)
-  const [statementTypeMissing, setStatementTypeMissing] = useState(false)
-  const [fileName, setFileName] = useState('')
-  const [candidates, setCandidates] = useState<NonNullable<Awaited<ReturnType<typeof parsePdf>>['candidates']>>([])
-  const [candidateIndex, setCandidateIndex] = useState(0)
   const [conversionRates,setConversionRates]=useState<Record<string,number>>({...preferences.rates})
   const conversionRate=kesRate(form.currency,conversionRates)
-  const fileRef = useRef<HTMLInputElement>(null)
   const dialogRef = useRef<HTMLElement>(null)
   useModalFocus(dialogRef,onClose)
-  function switchTab(event:ReactKeyboardEvent<HTMLButtonElement>){
-    const next=investmentTabForKey(tab,event.key)
-    if(!next)return
-    event.preventDefault();setTab(next)
-    document.getElementById(`investment-tab-${next}`)?.focus()
-  }
   const put = <K extends keyof InvestmentInput>(key: K, value: InvestmentInput[K]) => setForm(prev => ({ ...prev, [key]: value }))
   const preview:Investment={...form,id:initial?.id??'preview',events:initial?.events??[],status:initial?.status??'active',createdAt:initial?.createdAt??'',principal:Number(form.principal)||0,annualRate:Number(form.annualRate)||0}
   const todayEstimate=estimate(preview,new Date()), yearEstimate=estimate(preview,addMonths(new Date(),12))
@@ -350,93 +328,49 @@ function InvestmentModal({ initial, initialTab='manual', existingItems, preferen
   const previewNext=!previewReady?'Confirm currency and enter a valid KES rate':previewUnknown?`Between ${formatMoney(Math.max(0,yearEstimate.low-todayEstimate.low)*previewTax*previewFx,'KES')} and ${formatMoney(Math.max(0,yearEstimate.high-todayEstimate.high)*previewTax*previewFx,'KES')}`:formatMoney(Math.max(0,yearEstimate.interest-todayEstimate.interest)*previewTax*previewFx,'KES')
 
   function useTemplate(value:string) {
-    if(value) setStatementTypeMissing(false)
+
     if(value==='treasury')setForm(prev=>({...prev,type:'Bond',name:prev.name||'Treasury bond',frequency:'semiannual',interestMode:'paid_out',couponMonths:[]}))
     if(value==='fixed')setForm(prev=>({...prev,type:'Other',name:prev.name||'Fixed deposit',frequency:'at_maturity',interestMode:'paid_out'}))
     if(value==='mmf')setForm(prev=>({...prev,type:'MMF',name:prev.name||'Money market fund',frequency:'daily',interestMode:'paid_out'}))
   }
 
   function setType(type: InvestmentType) {
-    setStatementTypeMissing(false)
     setForm(prev => ({ ...prev, type, name: type === 'MMF' && prev.name === '' ? 'Money Market Fund' : prev.name, frequency: prev.frequency, maturityDate: type === 'MMF' ? null : prev.maturityDate }))
   }
-  function applyStatementFields(fields: StatementFields) {
-    setStatementTypeMissing(!fields.type)
-    setForm({
-      ...blank,
-      provider: fields.provider ?? '',
-      name: fields.name ?? '',
-      type: fields.type ?? 'Other',
-      currency: fields.currency ?? '',
-      principal: fields.principal ? Number(fields.principal.replaceAll(',', '')) : 0,
-      annualRate: fields.annualRate === undefined ? Number.NaN : Number(fields.annualRate),
-      startDate: fields.startDate ?? '',
-      maturityDate: fields.maturityDate ?? null,
-      frequency: fields.frequency ? normalizeFrequency(fields.frequency) : 'unknown',
-    })
-  }
-
-  async function handleFile(file?: File) {
-    if (!file) return
-    parseController.current?.abort()
-    const controller=new AbortController();parseController.current=controller
-    setParsing(true);setCandidates([]);setCandidateIndex(0);setExtractedText('');setOcrWarnings([])
-    setForm({...blank,currency:'',startDate:''})
-    setParseError(''); setParseStatus('Reading PDF locally…'); setFileName(file.name); setStatementLoaded(false)
-    try {
-      const result = await parsePdf(file,{signal:controller.signal,forceOcr,onProgress:message=>{if(parseController.current===controller&&!controller.signal.aborted)setParseStatus(message)}})
-      if(parseController.current!==controller||controller.signal.aborted)return
-      setExtractedText(result.text);setOcrWarnings(result.warnings)
-      const list=result.candidates?.length?result.candidates:[result.fields];setCandidates(list);setCandidateIndex(0)
-      const fields = list[0]
-      applyStatementFields(fields)
-      const count = Object.entries(fields).filter(([key,value])=>key!=='currencyStatus'&&Boolean(value)).length
-      setStatementLoaded(true)
-      setParseStatus(count ? `Found ${list.length} possible investment${list.length===1?'':'s'} and ${count} fields for this one. Review each before saving.` : 'Readable text found, but no familiar fields were identified. Fill in details manually.')
-    } catch (e) { if(parseController.current===controller){setParseStatus('');setParseError(e instanceof Error ? e.message : 'Could not read this PDF. Try again or enter details manually.')} }
-    finally {if(parseController.current===controller){setParsing(false);parseController.current=null}}
-  }
-  function cancelReading(){parseController.current?.abort()}
-
   async function submit(event: FormEvent) {
     event.preventDefault(); setAttempted(true)
-    if(parsing||(tab==='statement'&&statementLoaded&&statementTypeMissing))return
-    if(!currencyCodes.includes(form.currency)){setParseError('Confirm the investment currency before saving.');return}
-    if(form.currency!=='KES'&&(conversionRate===null||!Number.isFinite(form.principal*conversionRate))){setParseError('Enter a positive, finite conversion rate to KES before saving this investment.');return}
+    if(saving)return
+    setSaveError('')
+    if(!currencyCodes.includes(form.currency)){setSaveError('Confirm the investment currency before saving.');return}
+    if(form.currency!=='KES'&&(conversionRate===null||!Number.isFinite(form.principal*conversionRate))){setSaveError('Enter a positive, finite conversion rate to KES before saving this investment.');return}
     if (!form.provider.trim() || !form.name.trim() || !Number.isFinite(form.principal) || !(form.principal > 0) || !Number.isFinite(form.annualRate) || form.annualRate < 0 || !form.startDate || (form.maturityDate && form.maturityDate < form.startDate)) return
     setSaving(true)
     try {
-      const keep=tab==='statement'&&!initial&&candidateIndex<candidates.length-1
-      await onSave({ ...form, provider: form.provider.trim(), name: form.name.trim(), maturityDate: form.maturityDate || null }, initial?.id,keep,conversionRate??undefined)
-      if(keep){const nextIndex=candidateIndex+1,fields=candidates[nextIndex];setCandidateIndex(nextIndex);applyStatementFields(fields);setParseError('');setParseStatus(`Saved investment ${nextIndex} of ${candidates.length}. Review the next candidate, its currency and its KES conversion rate.`)}
+
+      await onSave({ ...form, provider: form.provider.trim(), name: form.name.trim(), maturityDate: form.maturityDate || null }, initial?.id,conversionRate??undefined)
     }
-    catch (e) { setParseError(e instanceof Error ? e.message : 'Could not save investment.') }
+    catch (e) { setSaveError(e instanceof Error ? e.message : 'Could not save investment.') }
     finally { setSaving(false) }
   }
   const duplicate=existingItems.some(x=>x.currency===form.currency&&x.name.trim().toLowerCase()===form.name.trim().toLowerCase()&&x.provider.trim().toLowerCase()===form.provider.trim().toLowerCase()&&Math.abs(x.principal-Number(form.principal))<0.01)
 
   return <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}><section ref={dialogRef} className="modal-card" tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="modal-title"><div className="modal-header"><div><div className="section-kicker"><Plus size={14} /> PORTFOLIO DETAILS</div><h2 id="modal-title">{initial ? 'Edit investment' : 'Add an investment'}</h2><p>Enter the details you know. You can update them any time.</p></div><button className="icon-button close-button" onClick={onClose} aria-label="Close dialog"><X size={19} /></button></div>
-    {!initial && <div className="modal-tabs" role="tablist" aria-label="Choose how to add an investment"><button id="investment-tab-manual" type="button" role="tab" aria-controls="investment-entry-panel" aria-selected={tab === 'manual'} tabIndex={tab==='manual'?0:-1} className={tab === 'manual' ? 'active' : ''} onClick={() => setTab('manual')} onKeyDown={switchTab}><Pencil size={15} /> Enter manually</button><button id="investment-tab-statement" type="button" role="tab" aria-controls="investment-entry-panel" aria-selected={tab === 'statement'} tabIndex={tab==='statement'?0:-1} className={tab === 'statement' ? 'active' : ''} onClick={() => setTab('statement')} onKeyDown={switchTab}><FileText size={15} /> From statement <span className="local-tag">LOCAL</span></button></div>}
-    <div id="investment-entry-panel" className="investment-entry-panel" role={initial?undefined:'tabpanel'} aria-labelledby={initial?undefined:`investment-tab-${tab}`}>
-    {tab === 'statement' && !initial && <div className="upload-area"><input ref={fileRef} type="file" accept="application/pdf,.pdf" onChange={e => {const file=e.target.files?.[0];e.target.value='';void handleFile(file)}} hidden /><div className="upload-icon"><Upload size={19} /></div><strong>Extract from a PDF statement</strong><p>PDF text and scanned pages are read on this device using Tesseract OCR. Your statement is not uploaded. English scans supported · up to 12 MB and 12 pages.</p><label className="profile-checkbox"><input type="checkbox" checked={forceOcr} disabled={parsing} onChange={e=>setForceOcr(e.target.checked)}/><span>Use OCR for all pages (try this if text extraction misses details)</span></label><button type="button" className="button button-quiet" disabled={parsing} onClick={() => fileRef.current?.click()}><Upload size={15} /> Choose PDF</button>{parsing&&<button type="button" className="text-button" onClick={cancelReading}>Cancel reading</button>}{fileName && <div className="file-name"><FileText size={14} />{fileName}</div>}{parseStatus && <div className="parse-status" role="status">{parseStatus}</div>}</div>}
-    <form className="investment-form" onSubmit={e => void submit(e)}>{tab==='statement'&&ocrWarnings.map((warning,index)=><p className="duplicate-warning" role="status" key={index}>{warning}</p>)}{tab==='statement'&&extractedText&&<details><summary>View extracted text to check the results</summary><pre className="statement-extracted-text">{extractedText}</pre></details>}{parseError&&<p className="parse-error" role="alert">{parseError}</p>}
-      {tab === 'statement' && statementLoaded && <div className="review-banner"><Check size={15} /><span><strong>Review extracted details.</strong> Compare the name, type, annual rate and principal with your statement. Correct any figures and fill in missing details before saving.</span></div>}
+    <form className="investment-form" onSubmit={e => void submit(e)}>{saveError&&<p className="investment-save-error" role="alert">{saveError}</p>}
       {duplicate&&<div className="duplicate-warning" role="alert"><CircleHelp size={15}/> Possible duplicate: a saved investment has the same provider, name and principal. Confirm before adding.</div>}
       {!initial&&<label className="field template-field"><span>Start from a product template</span><span className="select-wrap"><select defaultValue="" onChange={e=>useTemplate(e.target.value)}><option value="">Choose a template (optional)</option><option value="treasury">Treasury bond · semi-annual coupons</option><option value="fixed">Fixed deposit · at maturity</option><option value="mmf">Money market fund · daily accrual (paid out)</option></select><ChevronDown size={15}/></span></label>}
       <div className="form-section-title"><span>01</span> Investment details</div>
       <div className="form-grid"><label className="field full"><span>Investment or product name <b>*</b></span><input value={form.name} onChange={e => put('name', e.target.value)} placeholder="e.g. Horizon Money Market Fund" required aria-invalid={attempted && !form.name.trim()} /></label>
         <label className="field"><span>Provider / company <b>*</b></span><input value={form.provider} onChange={e => put('provider', e.target.value)} placeholder="e.g. Horizon Capital" required /></label>
-        <label className="field"><span>Investment type <b>*</b></span><span className="select-wrap"><select required value={tab==='statement'&&statementLoaded&&statementTypeMissing?'':form.type} onChange={e => setType(e.target.value as InvestmentType)}><option value="" disabled>Select investment type</option><option value="MMF">Money market fund (MMF)</option><option value="Bond">Bond</option><option value="Other">Other income investment</option></select><ChevronDown size={15} /></span></label>
+        <label className="field"><span>Investment type <b>*</b></span><span className="select-wrap"><select required value={form.type} onChange={e => setType(e.target.value as InvestmentType)}><option value="MMF">Money market fund (MMF)</option><option value="Bond">Bond</option><option value="Other">Other income investment</option></select><ChevronDown size={15} /></span></label>
       </div>
       <div className="form-section-title second"><span>02</span> Amount & timing</div>
       <div className="form-grid">{initial?<div className="field"><span>Current principal</span><strong>{formatMoney(estimate(initial,new Date()).principal,initial.currency)}</strong><small>Opening principal: {formatMoney(initial.principal,initial.currency)}. Dated top-ups and withdrawals determine the current amount.</small><div className="ledger-actions"><button type="button" className="text-button" onClick={()=>onRecordEvent(initial,'deposit')}>Add top-up</button><button type="button" className="text-button" onClick={()=>onRecordEvent(initial,'withdrawal')}>Add withdrawal</button></div></div>:<label className="field"><span>Principal amount <b>*</b></span><div className="input-with-prefix"><span>{form.currency}</span><input type="number" min="0.01" step="0.01" value={form.principal || ''} onChange={e => put('principal', Number(e.target.value))} placeholder="10,000.00" required /></div>{form.type === 'Bond' && <small>Enter face value for coupon estimates. Purchase-price yield is not modeled.</small>}</label>}
-        <label className="field"><span>Currency <b>*</b></span><span className="select-wrap"><select required disabled={!!initial} value={form.currency} onChange={e => put('currency', e.target.value)}><option value="" disabled>Confirm statement currency</option>{currencyOptions.map(x => <option key={x}>{x}</option>)}</select><ChevronDown size={15} /></span></label>
+        <label className="field"><span>Currency <b>*</b></span><span className="select-wrap"><select required disabled={!!initial} value={form.currency} onChange={e => put('currency', e.target.value)}><option value="" disabled>Select currency</option>{currencyOptions.map(x => <option key={x}>{x}</option>)}</select><ChevronDown size={15} /></span></label>
         <label className="field"><span>Investment start date <b>*</b></span><div className="input-with-icon"><CalendarDays size={15} /><input type="date" disabled={!!initial} value={form.startDate} onChange={e => put('startDate', e.target.value)} required /></div><small>Future start dates are saved as Scheduled and excluded from totals.</small></label>
         <label className="field"><span>Maturity date <small>Optional</small></span><div className="input-with-icon"><CalendarDays size={15} /><input type="date" value={form.maturityDate ?? ''} onChange={e => put('maturityDate', e.target.value || null)} min={form.startDate} /></div></label>
       </div>
 
-      {statementLoaded&&tab==='statement'&&<p className="currency-detection" role="status">{candidates[candidateIndex]?.currencyStatus==='detected'?'Statement currency detected: '+candidates[candidateIndex].currency+'. Confirm it against your statement.':'The statement currency is missing or ambiguous. Select the correct currency above; a dollar sign alone does not identify USD.'}</p>}
-      {form.currency&&form.currency!=='KES'&&<div className="investment-fx"><h3>Convert this investment to KES</h3><p>{statementLoaded?'This statement is in '+form.currency+'. ':'This investment is in '+form.currency+'. '}Enter the current rate you want to apply before saving.</p><label className="field"><span>1 {form.currency} = how many KES? <b>*</b></span><div className="input-with-suffix"><input type="number" required min="0.00000001" step="any" value={conversionRates[form.currency]??''} onChange={e=>setConversionRates(prev=>({...prev,[form.currency]:Number(e.target.value)}))} placeholder="Enter conversion rate"/><span>KES</span></div></label><p aria-live="polite">{conversionRate!==null&&Number.isFinite(todayEstimate.principal*conversionRate)?'Principal in KES: '+formatMoney(todayEstimate.principal*conversionRate,'KES'):'Enter a valid rate to preview the KES equivalent.'}</p><small>User-set rate, not a live quote. Saving applies it to all {form.currency} holdings, current totals and projections. The original amount stays in {form.currency}.</small></div>}
+      {form.currency&&form.currency!=='KES'&&<div className="investment-fx"><h3>Convert this investment to KES</h3><p>This investment is in {form.currency}. Enter the current rate you want to apply before saving.</p><label className="field"><span>1 {form.currency} = how many KES? <b>*</b></span><div className="input-with-suffix"><input type="number" required min="0.00000001" step="any" value={conversionRates[form.currency]??''} onChange={e=>setConversionRates(prev=>({...prev,[form.currency]:Number(e.target.value)}))} placeholder="Enter conversion rate"/><span>KES</span></div></label><p aria-live="polite">{conversionRate!==null&&Number.isFinite(todayEstimate.principal*conversionRate)?'Principal in KES: '+formatMoney(todayEstimate.principal*conversionRate,'KES'):'Enter a valid rate to preview the KES equivalent.'}</p><small>User-set rate, not a live quote. Saving applies it to all {form.currency} holdings, current totals and projections. The original amount stays in {form.currency}.</small></div>}
       <div className="form-section-title second"><span>03</span> Interest & payout terms</div>
       <div className="form-grid">{initial?<div className="field"><span>Current recorded yield</span><strong>{(initial?currentYield(initial):form.annualRate).toFixed(2)}%</strong><button type="button" className="text-button" onClick={()=>onRecordEvent(initial,'rate_change')}>Record rate change</button></div>:<label className="field"><span>Annual interest rate / yield <b>*</b></span><div className="input-with-suffix"><input type="number" min="0" max="1000" step="any" value={Number.isFinite(form.annualRate) ? form.annualRate : ''} onChange={e => put('annualRate', e.target.valueAsNumber)} placeholder="5.25" required /><span>%</span></div></label>}
         <label className="field"><span>Payment / compounding frequency <small>As stated by provider</small><span className="help-line">Look for “coupon frequency”, “distribution”, or “interest credited” on the statement’s product terms.</span></span><span className="select-wrap"><select value={form.frequency} onChange={e => setForm(prev=>({...prev,frequency:e.target.value as Frequency,couponMonths:[]}))}>{Object.entries(frequencyLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select><ChevronDown size={15} /></span><small>Payment dates are estimates: {form.couponMonths.length?`coupon months ${form.couponMonths.join(', ')}, using the start day`:'start-date anniversaries'}. Confirm the provider’s actual schedule. Changing frequency resets coupon months.</small></label>
@@ -446,8 +380,8 @@ function InvestmentModal({ initial, initialTab='manual', existingItems, preferen
       </div>
       {attempted && (!form.provider.trim() || !form.name.trim() || !(form.principal > 0) || (form.maturityDate && form.maturityDate < form.startDate)) && <p className="validation-error" role="alert">Enter a name, provider and positive principal. Maturity must be on or after the start date.</p>}
       <div className="form-preview"><div className="preview-icon"><TrendingUp size={17} /></div><div><strong>Live estimate preview</strong><span>Earned so far: {previewEarned} · Next 12 months: {previewNext}. {previewUnknown?'Range is simple accrual to daily compounding.':form.interestMode==='compound'?(form.frequency==='at_maturity'?'Simple accrual retained until maturity; no interim compounding.':`Compounds ${frequencyLabels[form.frequency].toLowerCase()} using ACT/365.`):'Simple accrual for paid-out interest.'} {form.yieldBasis==='gross'&&form.taxRate>0?` Tax estimate ${form.taxRate}% applied to accrued earnings.`:''}</span></div><CircleHelp size={15} className="preview-help" /></div>
-      <div className="modal-footer"><span><LockKeyhole size={13} /> Your information is private</span><div><button type="button" className="button button-quiet" onClick={onClose}>Cancel</button><button type="submit" className="button button-primary" disabled={saving||parsing}>{saving ? 'Saving…' : tab==='statement'&&candidateIndex<candidates.length-1?'Save & review next':initial ? 'Save changes' : 'Save investment'} <ArrowRight size={15} /></button></div></div>
-    </form></div></section></div>
+      <div className="modal-footer"><span><LockKeyhole size={13} /> Your information is private</span><div><button type="button" className="button button-quiet" onClick={onClose}>Cancel</button><button type="submit" className="button button-primary" disabled={saving}>{saving ? 'Saving…' : initial ? 'Save changes' : 'Save investment'} <ArrowRight size={15} /></button></div></div>
+    </form></section></div>
 }
 function RadioCard({ selected, title, description, onClick }: { selected: boolean; title: string; description: string; onClick: () => void }) {
   return <button type="button" className={`radio-card ${selected ? 'chosen' : ''}`} onClick={onClick} aria-pressed={selected}><span className="radio-indicator">{selected && <span />}</span><strong>{title}</strong><small>{description}</small></button>
@@ -464,10 +398,5 @@ function EventModal({item,initialKind,onClose,onSave}:{item:Investment;initialKi
  function submit(e:FormEvent){e.preventDefault();const n=Number(kind==='rate_change'?rate:amount);if(!date||!Number.isFinite(n)||(kind==='rate_change'?n<0:n<=0)){setError(kind==='rate_change'?'Enter a valid annual rate.':'Enter a positive amount.');return}try{onSave({id:crypto.randomUUID(),date,kind,...(kind==='rate_change'?{annualRate:n}:{amount:n})})}catch(e){setError(e instanceof Error?e.message:'Could not record event.')}}
  return <div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)onClose()}}><section ref={dialogRef} className="modal-card event-modal" tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="event-title"><div className="modal-header"><div><div className="section-kicker"><ArrowDownUp size={14}/> EVENT LEDGER</div><h2 id="event-title">Record an investment event</h2><p>{item.name} · current principal {formatMoney(estimate(item,new Date()).principal,item.currency)}</p></div><button className="icon-button" onClick={onClose} aria-label="Close"><X size={18}/></button></div><form className="investment-form" onSubmit={submit}><label className="field"><span>Event type</span><span className="select-wrap"><select value={kind} onChange={e=>setKind(e.target.value as typeof kind)}><option value="deposit">Top-up / deposit</option><option value="withdrawal">Withdrawal</option><option value="rate_change">Rate change</option></select><ChevronDown size={15}/></span></label><label className="field"><span>Effective date</span><input type="date" min={item.startDate} max={item.maturityDate??undefined} value={date} onChange={e=>setDate(e.target.value)} required/></label>{kind==='rate_change'?<label className="field"><span>New annual rate</span><div className="input-with-suffix"><input type="number" min="0" max="1000" step="0.01" value={rate} onChange={e=>setRate(e.target.value)} placeholder="5.25"/><span>%</span></div></label>:<label className="field"><span>Amount ({item.currency})</span><input type="number" min="0.01" step="0.01" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="Amount"/></label>}{previewPrincipal!==null&&<div className="form-preview" aria-live="polite"><div><strong>Principal after this event: {formatMoney(previewPrincipal,item.currency)}</strong><br/><span>{formatMoney(beforePrincipal,item.currency)} {kind==='deposit'?'+':'−'} {formatMoney(draftAmount,item.currency)} · effective {date}. {date>dateKey(new Date())?'This is future-dated; today’s principal will change on that date.':'The investment row and portfolio total update when you record the event.'}</span></div></div>}{overdraft&&<p className="validation-error" role="alert">This withdrawal exceeds the principal available on its effective date.</p>}{kind==='rate_change'&&<p className="settings-note">Yield changes affect earnings; they do not change invested principal.</p>}{error&&<p role="alert" className="validation-error">{error}</p>}<div className="ledger-history"><strong>Event history</strong>{item.events.length?<div className="ledger-table-wrap"><table><thead><tr><th>Date</th><th>Event</th><th>Value</th></tr></thead><tbody>{[...item.events].sort((a,b)=>b.date.localeCompare(a.date)).map(x=><tr key={x.id}><td>{x.date}</td><td>{x.kind==='rate_change'?'Rate change':x.kind==='deposit'?'Top-up':'Withdrawal'}</td><td>{x.kind==='rate_change'?`${x.annualRate}%`:formatMoney(x.amount??0,item.currency)}</td></tr>)}</tbody></table></div>:<span>No ledger events yet.</span>}</div><div className="modal-footer"><span>Accrual is recalculated in date order.</span><div><button type="button" className="button button-quiet" onClick={onClose}>Cancel</button><button className="button button-primary" type="submit">Record event</button></div></div></form></section></div>
 }
-function normalizeFrequency(raw: string): Frequency {
-  const value = raw.toLowerCase()
-  if (value.includes('daily')) return 'daily'; if (value.includes('monthly')) return 'monthly'; if (value.includes('quarterly')) return 'quarterly'; if (value.includes('semi')) return 'semiannual'; if (value.includes('annual')) return 'annual'; if (value.includes('maturity')) return 'at_maturity'; return 'unknown'
-}
-
 export default App
 
