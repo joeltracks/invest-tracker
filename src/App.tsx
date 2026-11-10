@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type RefObject } from 'react'
 import { Activity, ArrowDownToLine, ArrowRight, CalendarDays, ChartNoAxesCombined, Check, ChevronDown, CircleHelp, FileText, Landmark, LockKeyhole, Pencil, Plus, ShieldCheck, Sparkles, Trash2, TrendingUp, WalletCards, X, ArrowDownUp } from 'lucide-react'
+import { Analytics } from '@vercel/analytics/react'
 import { addMonths, estimate, estimateLabel, formatMoney, investmentState, nextPayout, currentYield, dateKey, hasUnknownTerms, netValue, valueRange, incomeRange, scheduledPayouts, taxFactor } from './lib/calculations'
 import { appendEvent, deleteInvestment, loadInvestments, restoreInvestment, saveInvestment, setInvestmentStatus } from './lib/localStore'
 import type { Frequency, Investment, InvestmentInput, InvestmentType } from './types'
@@ -296,6 +297,7 @@ function App() {
     {modal && <InvestmentModal key={editing?.id ?? 'new'} initial={editing} existingItems={items} preferences={preferences} onClose={() => { setModal(false); setEditing(null) }} onRecordEvent={(item,kind)=>{setModal(false);recordEvent(item,kind)}} onSave={save} />}
     {eventFor && <EventModal key={`${eventFor.id}-${eventKind??'any'}`} item={eventFor} initialKind={eventKind} onClose={()=>{setEventFor(null);setEventKind(undefined)}} onSave={async(event)=>{if(cloud)await writeCloud({action:'event',id:eventFor.id,event});else setItems(appendEvent(eventFor.id,event));setEventFor(null);setEventKind(undefined);announce('Ledger event recorded')}} />}
     {toast && <div className="toast" role="status"><Check size={16} />{toast}{undoItem&&<button onClick={undoDelete}>Undo</button>}</div>}
+    <Analytics />
   </div>
 }
 
