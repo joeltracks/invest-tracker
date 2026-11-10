@@ -30,6 +30,7 @@ export function createCloudPortfolio(client: SupabaseClient, userId: string): Cl
     async read() {
       await requireSession()
       const { data, error } = await client.rpc('yieldwise_portfolio', { expected_user: userId })
+      if (error?.code === 'PT429') throw Error('Too many portfolio reads. Wait a minute and retry.')
       if (error || !data) throw Error('Could not load your cloud portfolio. Check your session and try again.')
       return data as PortfolioSnapshot
     },
